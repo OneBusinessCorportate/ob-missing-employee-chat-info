@@ -218,7 +218,7 @@
     <div id="toast" role="status" aria-live="polite"></div>
 
     <script>
-      const state = { all: [], filters: new Set(), search: "", sort: "missing" };
+      const state = { all: [], counts: null, filters: new Set(), search: "", sort: "missing" };
 
       const el = (id) => document.getElementById(id);
 
@@ -309,9 +309,17 @@
         list.innerHTML = "";
 
         if (filtered.length === 0) {
-          msg.textContent = state.all.length === 0
-            ? "Проблемных чатов нет 🎉"
-            : "Ничего не найдено по заданным условиям.";
+          const c = state.counts;
+          if (c && c.total_chats === 0) {
+            // Реальных чатов нет вовсе (например, все имеющиеся — тестовые).
+            msg.textContent = c.excluded_test
+              ? `Реальных чатов пока нет — скрыто тестовых: ${c.excluded_test}.`
+              : "Реальных чатов пока нет.";
+          } else if (state.all.length === 0) {
+            msg.textContent = "Проблемных чатов нет 🎉";
+          } else {
+            msg.textContent = "Ничего не найдено по заданным условиям.";
+          }
           msg.className = "empty";
           return;
         }
@@ -425,11 +433,14 @@
           const data = await res.json();
           if (!data.ok) throw new Error(data.error || "Ошибка загрузки");
           state.all = data.chats;
+          state.counts = data.counts;
           el("s-total").textContent = data.counts.total_problems;
           el("s-acc").textContent = data.counts.missing_accountant;
           el("s-head").textContent = data.counts.missing_head_accountant;
           el("s-mgr").textContent = data.counts.missing_manager;
-          el("footer").textContent = "Всего чатов в системе: " + data.counts.total_chats;
+          let footer = "Всего реальных чатов: " + data.counts.total_chats;
+          if (data.counts.excluded_test) footer += " · тестовых скрыто: " + data.counts.excluded_test;
+          el("footer").textContent = footer;
           el("meta").textContent =
             "Данные актуальны на " + fmtDate(data.counts.data_updated_at) +
             " · загружено " + fmtDate(data.generated_at);

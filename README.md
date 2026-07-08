@@ -43,6 +43,20 @@ A chat is problematic when it is missing **at least one** of these roles:
 | Head Accountant | `participants.head_accountant`    |
 | Manager         | `participants.manager`            |
 
+### Test chats are excluded
+
+QA/test chats (currently every row in the table is one — named `testchat…`,
+created by "Lina") are **filtered out** so the checklist only shows real client
+chats. By default any chat whose name starts with `test` (case-insensitive) is
+excluded from the list **and** the counts; the number hidden is shown as
+"тестовых скрыто". Real chats appear automatically as soon as they are added.
+
+- `EXCLUDE_TEST_CHATS=0` — turn the filter off (show everything).
+- `TEST_CHAT_PATTERN` — override the regex (e.g. `^(test|qa)-`).
+
+Because the table currently contains **only** test chats, the live dashboard
+shows 0 real chats until real ones are added.
+
 "Missing" simply means the role's array is empty or absent. The dashboard and
 summary report:
 

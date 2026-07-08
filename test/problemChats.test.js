@@ -1,7 +1,7 @@
 // Юнит-тесты движка расчёта проблемных чатов (node:test, без Supabase).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeProblems } from "../lib/problemChats.js";
+import { computeProblems, isTestChat } from "../lib/problemChats.js";
 
 // Хелпер: строка с участниками через вложенный participants (прод-схема).
 function chat(name, { acc = [], head = [], mgr = [], ...rest } = {}) {
@@ -103,29 +103,71 @@ test("пустой ввод не падает", () => {
   assert.equal(computeProblems(null).counts.total_chats, 0);
 });
 
-// Регрессия против известного эталона: 14 строк -> 7 проблем -> 3/5/3.
-test("эталонный срез: 14 -> 7 проблем -> 3 без бух / 5 без гл.бух / 3 без менеджера", () => {
-  const P = [person];
-  const rows = [
-    chat("testchat1", { acc: [], head: [], mgr: P }), // проблема: acc, head
-    chat("testchat1", { acc: P, head: P, mgr: P }), // ок
-    chat("testchat1", { acc: P, head: P, mgr: [] }), // проблема: mgr
-    chat("testchat1", { acc: [], head: [], mgr: P }), // проблема: acc, head
-    chat("testchat2", { acc: P, head: [], mgr: [] }), // проблема: head, mgr
-    chat("testchat3", { acc: P, head: [], mgr: P }), // проблема: head
-    chat("testchat4", { acc: P, head: P, mgr: [] }), // проблема: mgr
-    chat("testchat5", { acc: [], head: [], mgr: P }), // проблема: acc, head
-    chat("testchat52", { acc: P, head: P, mgr: P }), // ок
-    chat("testchat64", { acc: P, head: P, mgr: P }), // ок
-    chat("testchat67", { acc: P, head: P, mgr: P }), // ок
-    chat("testchat67", { acc: P, head: P, mgr: P }), // ок
-    chat("testchat6767", { acc: P, head: P, mgr: P }), // ок
-    chat("testchatAaa", { acc: P, head: P, mgr: P }), // ок
-  ];
-  const { counts } = computeProblems(rows);
+// Эталонный набор строк (совпадает с тестовыми данными в БД).
+const P = [person];
+const BASELINE_ROWS = [
+  chat("testchat1", { acc: [], head: [], mgr: P }), // проблема: acc, head
+  chat("testchat1", { acc: P, head: P, mgr: P }), // ок
+  chat("testchat1", { acc: P, head: P, mgr: [] }), // проблема: mgr
+  chat("testchat1", { acc: [], head: [], mgr: P }), // проблема: acc, head
+  chat("testchat2", { acc: P, head: [], mgr: [] }), // проблема: head, mgr
+  chat("testchat3", { acc: P, head: [], mgr: P }), // проблема: head
+  chat("testchat4", { acc: P, head: P, mgr: [] }), // проблема: mgr
+  chat("testchat5", { acc: [], head: [], mgr: P }), // проблема: acc, head
+  chat("testchat52", { acc: P, head: P, mgr: P }), // ок
+  chat("testchat64", { acc: P, head: P, mgr: P }), // ок
+  chat("testchat67", { acc: P, head: P, mgr: P }), // ок
+  chat("testchat67", { acc: P, head: P, mgr: P }), // ок
+  chat("testchat6767", { acc: P, head: P, mgr: P }), // ок
+  chat("testchatAaa", { acc: P, head: P, mgr: P }), // ок
+];
+
+// Регрессия против известного эталона (сырой движок, без исключения тестовых).
+test("сырой движок: 14 -> 7 проблем -> 3 без бух / 5 без гл.бух / 3 без менеджера", () => {
+  const { counts } = computeProblems(BASELINE_ROWS, { excludeTest: false });
   assert.equal(counts.total_chats, 14);
   assert.equal(counts.total_problems, 7);
   assert.equal(counts.missing_accountant, 3);
   assert.equal(counts.missing_head_accountant, 5);
   assert.equal(counts.missing_manager, 3);
+});
+
+test("isTestChat распознаёт тестовые чаты по имени", () => {
+  assert.equal(isTestChat({ chat_name: "testchat1" }), true);
+  assert.equal(isTestChat({ chat_name: "TestChat67" }), true);
+  assert.equal(isTestChat({ chat_name: "  test blah" }), true);
+  assert.equal(isTestChat({ chat_name: "ООО Ромашка" }), false);
+  assert.equal(isTestChat({ chat_name: "" }), false);
+  assert.equal(isTestChat({}), false);
+});
+
+test("по умолчанию тестовые чаты исключаются из списка и счётчиков", () => {
+  const { problems, counts } = computeProblems(BASELINE_ROWS);
+  assert.equal(problems.length, 0);
+  assert.equal(counts.total_chats, 0);
+  assert.equal(counts.total_problems, 0);
+  assert.equal(counts.excluded_test, 14);
+});
+
+test("реальные чаты остаются, тестовые исключаются, счётчики верны", () => {
+  const rows = [
+    chat("testchat1", { acc: [], head: [], mgr: [] }), // тест — исключить
+    chat("ООО Ромашка", { acc: [], head: P, mgr: P }), // реальный: нет бухгалтера
+    chat("ИП Иванов", { acc: P, head: [], mgr: [] }), // реальный: нет гл.бух и менеджера
+  ];
+  const { problems, counts } = computeProblems(rows);
+  assert.equal(counts.total_chats, 2);
+  assert.equal(counts.excluded_test, 1);
+  assert.equal(counts.total_problems, 2);
+  assert.equal(counts.missing_accountant, 1);
+  assert.equal(counts.missing_head_accountant, 1);
+  assert.equal(counts.missing_manager, 1);
+  assert.ok(problems.every((p) => !p.chat_name.startsWith("testchat")));
+});
+
+test("свой шаблон исключения через опции", () => {
+  const rows = [chat("qa-demo", { acc: [] }), chat("ООО Клиент", { acc: [] })];
+  const { counts } = computeProblems(rows, { testPattern: /^qa-/i });
+  assert.equal(counts.excluded_test, 1);
+  assert.equal(counts.total_chats, 1);
 });

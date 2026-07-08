@@ -3,10 +3,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildMessage } from "../scripts/daily-report.js";
 
-test("0 проблем — позитивное сообщение со ссылкой", () => {
-  const msg = buildMessage({ total_problems: 0 }, "https://example.org");
+test("0 проблем при наличии чатов — позитивное сообщение со ссылкой", () => {
+  const msg = buildMessage({ total_problems: 0, total_chats: 5 }, "https://example.org");
   assert.match(msg, /Все чаты в порядке/);
   assert.match(msg, /https:\/\/example\.org/);
+});
+
+test("нет реальных чатов — отдельное сообщение, не ложное «всё ок»", () => {
+  const msg = buildMessage({ total_problems: 0, total_chats: 0 }, "https://example.org");
+  assert.match(msg, /Реальных чатов для проверки пока нет/);
+  assert.doesNotMatch(msg, /в порядке/);
 });
 
 test("0 проблем без PLATFORM_URL — без ссылки, но не падает", () => {
