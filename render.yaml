@@ -1,0 +1,43 @@
+# Render blueprint.
+#
+# 1) A web service that hosts the dashboard.
+# 2) A daily cron job that sends the short Telegram summary + link.
+#
+# Set the secret values (SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN,
+# TELEGRAM_CHAT_ID) in the Render dashboard — they are marked sync:false so
+# they are NOT stored in this file. After the web service is live, copy its
+# URL into PLATFORM_URL on the cron job.
+
+services:
+  - type: web
+    name: ob-chat-checklist-dashboard
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: SUPABASE_URL
+        value: https://fjsogozwseqoxgddjeig.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+  - type: cron
+    name: ob-chat-checklist-daily
+    runtime: node
+    plan: free
+    # 08:00 Asia/Yerevan is 04:00 UTC. Adjust to taste.
+    schedule: "0 4 * * *"
+    buildCommand: npm install
+    startCommand: npm run daily-report
+    envVars:
+      - key: SUPABASE_URL
+        value: https://fjsogozwseqoxgddjeig.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: PLATFORM_URL
+        sync: false

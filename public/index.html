@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Проблемные чаты · Ответственные</title>
+    <style>
+      :root {
+        --bg: #f5f6f8;
+        --card: #ffffff;
+        --text: #1a1d21;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --accent: #2563eb;
+        --danger-bg: #fee2e2;
+        --danger-text: #b91c1c;
+        --ok: #059669;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --card: #181b20;
+          --text: #e7e9ec;
+          --muted: #9aa0aa;
+          --border: #2a2e35;
+          --accent: #60a5fa;
+          --danger-bg: #3a1d1d;
+          --danger-text: #f87171;
+          --ok: #34d399;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.45;
+      }
+      .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; }
+      header h1 { font-size: 1.25rem; margin: 4px 0 2px; }
+      header p { margin: 0 0 12px; color: var(--muted); font-size: 0.9rem; }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .stat {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        text-align: center;
+      }
+      .stat .num { font-size: 1.5rem; font-weight: 700; }
+      .stat .lbl { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+        align-items: center;
+      }
+      #search {
+        flex: 1 1 200px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card);
+        color: var(--text);
+        font-size: 0.95rem;
+      }
+      .chip {
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+      }
+      .chip.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+
+      .list { display: flex; flex-direction: column; gap: 10px; }
+      .row {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .row .name { font-weight: 600; font-size: 1rem; word-break: break-word; }
+      .row .sub { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+      .tags { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+      .tag {
+        background: var(--danger-bg);
+        color: var(--danger-text);
+        border-radius: 6px;
+        padding: 3px 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .link {
+        flex: 0 0 auto;
+        text-decoration: none;
+        color: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: 8px;
+        padding: 7px 12px;
+        font-size: 0.8rem;
+        white-space: nowrap;
+      }
+      .link.disabled { color: var(--muted); border-color: var(--border); pointer-events: none; }
+
+      .empty, .loading { text-align: center; color: var(--muted); padding: 40px 0; }
+      .error { color: var(--danger-text); text-align: center; padding: 20px 0; }
+      footer { text-align: center; color: var(--muted); font-size: 0.75rem; margin-top: 20px; }
+
+      @media (max-width: 560px) {
+        .stats { grid-template-columns: repeat(2, 1fr); }
+        .row { flex-direction: column; }
+        .link { align-self: flex-start; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Проблемные чаты</h1>
+        <p>Системный чек-лист: чаты без ответственных. Не отчёт о нарушениях.</p>
+      </header>
+
+      <section class="stats" id="stats">
+        <div class="stat"><div class="num" id="s-total">–</div><div class="lbl">Проблемных чатов</div></div>
+        <div class="stat"><div class="num" id="s-acc">–</div><div class="lbl">Без бухгалтера</div></div>
+        <div class="stat"><div class="num" id="s-head">–</div><div class="lbl">Без гл. бухгалтера</div></div>
+        <div class="stat"><div class="num" id="s-mgr">–</div><div class="lbl">Без менеджера</div></div>
+      </section>
+
+      <section class="controls">
+        <input id="search" type="search" placeholder="Поиск по названию чата…" autocomplete="off" />
+        <span class="chip" data-filter="accountant">Нет бухгалтера</span>
+        <span class="chip" data-filter="head_accountant">Нет гл. бухгалтера</span>
+        <span class="chip" data-filter="manager">Нет менеджера</span>
+      </section>
+
+      <section id="list" class="list"></section>
+      <div id="msg" class="loading">Загрузка…</div>
+
+      <footer id="footer"></footer>
+    </div>
+
+    <script>
+      const state = { all: [], filters: new Set(), search: "" };
+
+      function missingTags(c) {
+        const tags = [];
+        if (c.missing_accountant) tags.push("Нет бухгалтера");
+        if (c.missing_head_accountant) tags.push("Нет гл. бухгалтера");
+        if (c.missing_manager) tags.push("Нет менеджера");
+        return tags;
+      }
+
+      function render() {
+        const q = state.search.trim().toLowerCase();
+        const filtered = state.all.filter((c) => {
+          if (q && !(c.chat_name || "").toLowerCase().includes(q)) return false;
+          for (const f of state.filters) {
+            if (f === "accountant" && !c.missing_accountant) return false;
+            if (f === "head_accountant" && !c.missing_head_accountant) return false;
+            if (f === "manager" && !c.missing_manager) return false;
+          }
+          return true;
+        });
+
+        const list = document.getElementById("list");
+        const msg = document.getElementById("msg");
+        list.innerHTML = "";
+
+        if (filtered.length === 0) {
+          msg.textContent = state.all.length === 0
+            ? "Проблемных чатов нет 🎉"
+            : "Ничего не найдено по заданным условиям.";
+          msg.className = "empty";
+          return;
+        }
+        msg.textContent = "";
+
+        for (const c of filtered) {
+          const row = document.createElement("div");
+          row.className = "row";
+
+          const left = document.createElement("div");
+          const name = document.createElement("div");
+          name.className = "name";
+          name.textContent = c.chat_name;
+          left.appendChild(name);
+
+          const subParts = [];
+          if (c.client_name) subParts.push(c.client_name);
+          if (c.contract_number) subParts.push("Договор: " + c.contract_number);
+          if (c.status) subParts.push(c.status);
+          if (subParts.length) {
+            const sub = document.createElement("div");
+            sub.className = "sub";
+            sub.textContent = subParts.join(" · ");
+            left.appendChild(sub);
+          }
+
+          const tags = document.createElement("div");
+          tags.className = "tags";
+          for (const t of missingTags(c)) {
+            const el = document.createElement("span");
+            el.className = "tag";
+            el.textContent = t;
+            tags.appendChild(el);
+          }
+          left.appendChild(tags);
+
+          const link = document.createElement("a");
+          if (c.chat_link) {
+            link.href = c.chat_link;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.className = "link";
+            link.textContent = "Открыть чат";
+          } else {
+            link.className = "link disabled";
+            link.textContent = "Нет ссылки";
+          }
+
+          row.appendChild(left);
+          row.appendChild(link);
+          list.appendChild(row);
+        }
+      }
+
+      async function load() {
+        try {
+          const res = await fetch("/api/problem-chats");
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || "Ошибка загрузки");
+          state.all = data.chats;
+          document.getElementById("s-total").textContent = data.counts.total_problems;
+          document.getElementById("s-acc").textContent = data.counts.missing_accountant;
+          document.getElementById("s-head").textContent = data.counts.missing_head_accountant;
+          document.getElementById("s-mgr").textContent = data.counts.missing_manager;
+          document.getElementById("footer").textContent =
+            "Всего чатов в системе: " + data.counts.total_chats;
+          render();
+        } catch (err) {
+          const msg = document.getElementById("msg");
+          msg.textContent = "Ошибка: " + err.message;
+          msg.className = "error";
+        }
+      }
+
+      document.getElementById("search").addEventListener("input", (e) => {
+        state.search = e.target.value;
+        render();
+      });
+      document.querySelectorAll(".chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const f = chip.dataset.filter;
+          if (state.filters.has(f)) {
+            state.filters.delete(f);
+            chip.classList.remove("active");
+          } else {
+            state.filters.add(f);
+            chip.classList.add("active");
+          }
+          render();
+        });
+      });
+
+      load();
+    </script>
+  </body>
+</html>

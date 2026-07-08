@@ -1,0 +1,17 @@
+{
+  "name": "ob-missing-employee-chat-info",
+  "version": "1.0.0",
+  "description": "Dashboard + daily Telegram summary for client Telegram chats that are missing responsible people (accountant / head accountant / manager).",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "daily-report": "node scripts/daily-report.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "express": "^4.19.2"
+  }
+}
