@@ -206,8 +206,9 @@
         <select id="sort" aria-label="Сортировка">
           <option value="missing">Сначала с бо́льшим числом пропусков</option>
           <option value="name">По названию (А→Я)</option>
-          <option value="updated">Сначала недавно изменённые</option>
+          <option value="updated">Сначала недавно проверенные</option>
         </select>
+        <button class="chip" id="chip-notchecked" type="button" aria-pressed="false" hidden>Не проверено</button>
       </section>
 
       <section id="list" class="list" aria-live="polite" aria-busy="true"></section>
@@ -218,7 +219,7 @@
     <div id="toast" role="status" aria-live="polite"></div>
 
     <script>
-      const state = { all: [], counts: null, filters: new Set(), search: "", sort: "missing" };
+      const state = { all: [], notChecked: [], counts: null, filters: new Set(), search: "", sort: "missing", showNotChecked: false };
 
       const el = (id) => document.getElementById(id);
 
@@ -240,6 +241,7 @@
       }
 
       function missingTags(c) {
+        if (c.no_data) return ["Нет данных — бот не проверял чат"];
         const tags = [];
         if (c.missing_accountant) tags.push("Нет бухгалтера");
         if (c.missing_head_accountant) tags.push("Нет гл. бухгалтера");
@@ -271,21 +273,27 @@
 
       function currentFiltered() {
         const q = state.search.trim().toLowerCase();
-        let filtered = state.all.filter((c) => {
+        // Источник: либо непроверенные чаты, либо проблемные (по умолчанию).
+        const source = state.showNotChecked ? state.notChecked : state.all;
+        let filtered = source.filter((c) => {
           if (q) {
             const hay = [c.chat_name, c.chat_id].filter(Boolean).join(" ").toLowerCase();
             if (!hay.includes(q)) return false;
           }
-          for (const f of state.filters) {
-            if (f === "accountant" && !c.missing_accountant) return false;
-            if (f === "head_accountant" && !c.missing_head_accountant) return false;
-            if (f === "manager" && !c.missing_manager) return false;
+          // Фильтры по ролям применяются только к проблемным чатам.
+          if (!state.showNotChecked) {
+            for (const f of state.filters) {
+              if (f === "accountant" && !c.missing_accountant) return false;
+              if (f === "head_accountant" && !c.missing_head_accountant) return false;
+              if (f === "manager" && !c.missing_manager) return false;
+            }
           }
           return true;
         });
 
         const collator = new Intl.Collator("ru");
-        if (state.sort === "name") {
+        if (state.showNotChecked || state.sort === "name") {
+          // У непроверенных нет числа пропусков — сортируем по названию.
           filtered.sort((a, b) => collator.compare(a.chat_name, b.chat_name));
         } else if (state.sort === "updated") {
           filtered.sort((a, b) => (b.checked_at || "").localeCompare(a.checked_at || ""));
@@ -305,12 +313,16 @@
 
         if (filtered.length === 0) {
           const c = state.counts;
-          if (c && c.total_chats === 0) {
+          if (state.showNotChecked) {
+            msg.textContent = state.notChecked.length === 0
+              ? "Непроверенных чатов нет — все чаты с данными."
+              : "Ничего не найдено по заданным условиям.";
+          } else if (c && c.total_chats === 0) {
             msg.textContent = c.excluded_test
               ? `Чатов для проверки нет — скрыто тестовых: ${c.excluded_test}.`
               : "Чатов для проверки пока нет.";
           } else if (state.all.length === 0) {
-            msg.textContent = "Все чаты укомплектованы 🎉";
+            msg.textContent = "Все проверенные чаты укомплектованы 🎉";
           } else {
             msg.textContent = "Ничего не найдено по заданным условиям.";
           }
@@ -412,12 +424,19 @@
           const data = await res.json();
           if (!data.ok) throw new Error(data.error || "Ошибка загрузки");
           state.all = data.chats;
+          state.notChecked = data.not_checked || [];
           state.counts = data.counts;
           el("s-total").textContent = data.counts.total_problems;
           el("s-acc").textContent = data.counts.missing_accountant;
           el("s-head").textContent = data.counts.missing_head_accountant;
           el("s-mgr").textContent = data.counts.missing_manager;
+          // Чип «Не проверено» показываем только если такие чаты есть.
+          const nc = data.counts.not_checked || 0;
+          const chip = el("chip-notchecked");
+          chip.hidden = nc === 0;
+          chip.textContent = "Не проверено: " + nc;
           let footer = "Всего чатов проверено: " + data.counts.total_chats;
+          if (nc) footer += " · не проверено (нет данных): " + nc;
           if (data.counts.excluded_test) footer += " · тестовых скрыто: " + data.counts.excluded_test;
           el("footer").textContent = footer;
           el("meta").textContent =
@@ -447,11 +466,24 @@
       // Плитки-фильтры (кроме «всего»). Работают мышью и с клавиатуры (это <button>).
       document.querySelectorAll('.stat[aria-pressed]').forEach((tile) => {
         tile.addEventListener("click", () => {
+          // Клик по роли всегда возвращает к списку проблемных чатов.
+          if (state.showNotChecked) toggleNotChecked(false);
           const f = tile.dataset.filter;
           if (state.filters.has(f)) { state.filters.delete(f); tile.setAttribute("aria-pressed", "false"); }
           else { state.filters.add(f); tile.setAttribute("aria-pressed", "true"); }
           render();
         });
+      });
+
+      // Переключатель «Не проверено» — показывает чаты без данных (бот их не проверял).
+      function toggleNotChecked(on) {
+        state.showNotChecked = on;
+        el("chip-notchecked").setAttribute("aria-pressed", String(on));
+        el("chip-notchecked").classList.toggle("active", on);
+      }
+      el("chip-notchecked").addEventListener("click", () => {
+        toggleNotChecked(!state.showNotChecked);
+        render();
       });
 
       load();

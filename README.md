@@ -27,14 +27,28 @@ Supabase project (`fjsogozwseqoxgddjeig`):
 
 - **`public.chats`** — the Telegram chats (`chat_id`, `chat_name`, `is_active`,
   `excluded_from_qa`). Only `is_active AND NOT excluded_from_qa` chats are checked.
-- **`public.chat_employee_presence`** — who is present in each chat, with
-  `employee_role` (`accountant` / `head_accountant` / `manager` / …) and
-  `is_present`.
+- **`public.chat_employee_presence`** — the membership check: who is present in
+  each chat, with `employee_role` (`accountant` / `head_accountant` / `manager` /
+  …) and `is_present`.
+- **`public.messages`** — actual messages, each with a `sender_role`. If a staff
+  member of a role has written in the chat, that role is treated as present too
+  (hard evidence of participation — the membership check occasionally fails with
+  "member not found" and similar).
 
 A read-only view **`public.v_chat_missing_responsibles`** aggregates these into
-one row per checked chat with `has_accountant` / `has_head_accountant` /
-`has_manager` / `checked_at`. The app selects from that view (server-side, with
-the service role key). See [Migrations](#migrations).
+one row per chat with `has_accountant` / `has_head_accountant` / `has_manager`
+(presence **or** message activity), a `checked` flag and `checked_at`. The app
+selects from that view (server-side, with the service role key).
+See [Migrations](#migrations).
+
+**Checked vs not checked.** A chat is `checked` when we actually have data for it
+(a membership check ran, or there are messages). Chats with **no data at all**
+(e.g. `kk_import` chats the bot has not joined yet) are reported separately as
+"не проверено" and are **not** counted as missing a responsible — otherwise every
+un-ingested chat would look like it is missing all three roles. This is why the
+totals (≈ 677 checked / 183 problematic) are lower and more accurate than a naive
+presence-only count (which showed ≈ 235, inflated by ~50 un-checked chats and by
+missing the message signal).
 
 > The older `public.client_telegram_chats` table (participants jsonb) held only
 > QA/test rows and is **not** used anymore.
@@ -43,11 +57,11 @@ the service role key). See [Migrations](#migrations).
 
 A chat is problematic when it is missing **at least one** of these roles:
 
-| Role            | "Missing" means…                                          |
-| --------------- | --------------------------------------------------------- |
-| Accountant      | no present employee with role `accountant`                |
-| Head Accountant | no present employee with role `head_accountant`           |
-| Manager         | no present employee with role `manager`                   |
+| Role            | "Missing" means… (for a **checked** chat)                            |
+| --------------- | ------------------------------------------------------------------- |
+| Accountant      | no `accountant` is present *and* none has written in the chat        |
+| Head Accountant | no `head_accountant` is present *and* none has written in the chat   |
+| Manager         | no `manager` is present *and* none has written in the chat           |
 
 The dashboard and summary report:
 
@@ -180,7 +194,7 @@ the cron string in `render.yaml` to move the send time.
 ## Migrations
 
 One **additive, read-only** migration: it creates the
-`public.v_chat_missing_responsibles` view over the existing `chats` and
-`chat_employee_presence` tables (see `sql/`). No existing table, data or logic is
-modified. The view is `security_invoker = true` and its access is revoked from
-`anon`/`authenticated`.
+`public.v_chat_missing_responsibles` view over the existing `chats`,
+`chat_employee_presence` and `messages` tables (see `sql/`). No existing table,
+data or logic is modified. The view is `security_invoker = true` and its access
+is revoked from `anon`/`authenticated`.

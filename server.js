@@ -72,9 +72,15 @@ function requireAuth(req, res, next) {
 const apiLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 app.get("/api/problem-chats", requireAuth, apiLimiter, async (_req, res) => {
   try {
-    const { problems, counts } = await getProblemChats();
+    const { problems, notChecked, counts } = await getProblemChats();
     res.set("Cache-Control", "no-store");
-    res.json({ ok: true, counts, chats: problems, generated_at: new Date().toISOString() });
+    res.json({
+      ok: true,
+      counts,
+      chats: problems,
+      not_checked: notChecked || [],
+      generated_at: new Date().toISOString(),
+    });
   } catch (err) {
     console.error("[/api/problem-chats]", err);
     res.status(500).json({ ok: false, error: err.message });

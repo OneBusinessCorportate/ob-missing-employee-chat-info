@@ -54,10 +54,16 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL) {
     `• ${counts.missing_accountant} без бухгалтера`,
     `• ${counts.missing_head_accountant} без главного бухгалтера`,
     `• ${counts.missing_manager} без менеджера`,
+  ];
+  // Отдельно упоминаем чаты без данных, чтобы их не путали с проблемными.
+  if (counts.not_checked) {
+    lines.push("", `⚠️ Не проверено (нет данных): ${counts.not_checked}`);
+  }
+  lines.push(
     "",
     "Чтобы увидеть больше информации, перейдите по ссылке:",
     platformUrl || "(ссылка на платформу не настроена — задайте PLATFORM_URL)",
-  ];
+  );
   return lines.join("\n");
 }
 

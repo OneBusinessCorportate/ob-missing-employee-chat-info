@@ -6,13 +6,15 @@ import assert from "node:assert/strict";
 import { computeProblems, isTestChat } from "../lib/problemChats.js";
 
 // Хелпер: acc/head/mgr — булевы флаги НАЛИЧИЯ ответственного (true = есть).
-function chat(name, { acc = false, head = false, mgr = false, ...rest } = {}) {
+// checked по умолчанию true (чат реально проверялся).
+function chat(name, { acc = false, head = false, mgr = false, checked = true, ...rest } = {}) {
   return {
     chat_id: rest.chat_id ?? name,
     chat_name: name,
     has_accountant: acc,
     has_head_accountant: head,
     has_manager: mgr,
+    checked,
     ...rest,
   };
 }
@@ -129,6 +131,39 @@ test("свой шаблон исключения через опции", () => {
   const { counts } = computeProblems(rows, { testPattern: /^qa-/i });
   assert.equal(counts.excluded_test, 1);
   assert.equal(counts.total_chats, 1);
+});
+
+// --- Непроверенные чаты (нет данных) ---
+test("непроверенный чат не считается проблемным, попадает в notChecked", () => {
+  const rows = [
+    chat("B-4722", { checked: false }), // нет данных
+    chat("реальный", { acc: false, head: true, mgr: true }), // проблема: нет бух
+  ];
+  const { problems, notChecked, counts } = computeProblems(rows);
+  assert.equal(counts.total_chats, 1); // проверен только один
+  assert.equal(counts.not_checked, 1);
+  assert.equal(counts.total_problems, 1);
+  assert.equal(notChecked.length, 1);
+  assert.equal(notChecked[0].chat_name, "B-4722");
+  assert.equal(notChecked[0].no_data, true);
+  assert.ok(problems.every((p) => p.checked === true));
+});
+
+test("непроверенный чат без ответственных НЕ раздувает счётчики ролей", () => {
+  const rows = [chat("нет данных", { acc: false, head: false, mgr: false, checked: false })];
+  const { counts } = computeProblems(rows);
+  assert.equal(counts.total_problems, 0);
+  assert.equal(counts.missing_accountant, 0);
+  assert.equal(counts.missing_head_accountant, 0);
+  assert.equal(counts.missing_manager, 0);
+  assert.equal(counts.not_checked, 1);
+});
+
+test("checked отсутствует в строке — считается проверенным (обратная совместимость)", () => {
+  const { counts } = computeProblems([{ chat_id: 1, chat_name: "x" }]);
+  assert.equal(counts.total_chats, 1);
+  assert.equal(counts.not_checked, 0);
+  assert.equal(counts.total_problems, 1);
 });
 
 // Регрессия: воспроизводим точные вердикты из реального отчёта (по флагам вью).
