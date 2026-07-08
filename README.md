@@ -10,11 +10,28 @@ It has two parts:
 
 1. **Dashboard** (`server.js` + `public/`) — a clean, mobile-friendly web page
    listing every problematic chat, what it is missing, and a link to the chat.
+   Protected by a shared-password login, with role filters, name/client/contract
+   search, sorting, CSV export, copy-link, manual refresh and a "last updated"
+   timestamp.
 2. **Daily Telegram summary** (`scripts/daily-report.js`) — posts only a short
    summary + a link to the dashboard. It never posts the full list anymore.
+   Sends with retry/backoff, structured JSON logs and optional idempotency.
 
 Both share `lib/problemChats.js`, so the counts in Telegram always match the
-dashboard.
+dashboard. Auth + rate limiting live in `lib/auth.js`.
+
+## Tests
+
+```bash
+npm test        # node:test — covers computeProblems, auth, the daily message
+```
+
+Coverage includes: all roles present, each role missing, multiple missing,
+absent `participants`, the pluralised-column fallback
+(`accountants`/`head_accountants`/`managers`), duplicate-name detection, the
+counts, and a regression lock on the known baseline (14 chats → 7 problems →
+3 / 5 / 3). CI runs the same suite on every push/PR
+(`.github/workflows/ci.yml`).
 
 ## What counts as a "problem"
 
@@ -58,11 +75,25 @@ npm run daily-report      # send the daily summary (use DRY_RUN=1 to preview)
 | --------------------------- | ------------------ | ----------------------------------------------------------- |
 | `SUPABASE_URL`              | dashboard + report | Defaults to the OB FAQ URL.                                 |
 | `SUPABASE_SERVICE_ROLE_KEY` | dashboard + report | **Required.** Service role key (kept server-side only).      |
+| `ACCESS_PASSWORD`           | dashboard          | Shared login password. If unset, the dashboard is **open** (dev only) — set it in production. |
+| `SESSION_SECRET`            | dashboard          | Optional. HMAC secret for the session cookie; derived from `ACCESS_PASSWORD` if unset. |
+| `NODE_ENV`                  | dashboard          | Set to `production` on Render so the session cookie is `Secure`. |
 | `TELEGRAM_BOT_TOKEN`        | report             | Bot that posts the daily summary.                           |
 | `TELEGRAM_CHAT_ID`          | report             | Chat/group the summary is posted to.                        |
 | `PLATFORM_URL`              | report             | Public dashboard URL — the link inside the Telegram message.|
 | `PORT`                      | dashboard          | Render sets this automatically.                             |
 | `DRY_RUN`                   | report             | `1` to print instead of send.                              |
+| `REPORT_STATE_FILE`         | report             | Optional. Path to a JSON file so the summary is not sent twice in one day. |
+
+## Access control
+
+The dashboard is behind a lightweight shared-password gate (no extra Supabase
+tables, no dependencies): the user enters `ACCESS_PASSWORD` once on `/login`,
+the server sets a signed **HttpOnly** cookie (HMAC, 30-day TTL), and every
+request is checked against it. `/healthz` stays public for Render. The
+`/api/problem-chats` and login endpoints are rate-limited in memory
+(60/min and 10/min per IP). If `ACCESS_PASSWORD` is not set the gate is
+disabled and the server logs a warning — **always set it in production.**
 
 `client_telegram_chats` has Row Level Security enabled and only allows
 authenticated, non-restricted users. The dashboard therefore reads it
@@ -103,8 +134,32 @@ Set the secret env vars (`SUPABASE_SERVICE_ROLE_KEY`, `TELEGRAM_BOT_TOKEN`,
 `TELEGRAM_CHAT_ID`, `PLATFORM_URL`) in the Render dashboard — they are marked
 `sync: false` and are not stored in the repo.
 
+The cron `schedule: "0 4 * * *"` is 04:00 UTC = **08:00 Asia/Yerevan**. Change
+the cron string in `render.yaml` to move the send time.
+
+## Security notes
+
+- The Supabase **service role key never reaches the browser** — the dashboard
+  reads Supabase only server-side and exposes a read-only API.
+- `/api/problem-chats` and `/login` are rate-limited (see *Access control*).
+- **Heads-up (not changed by this project):** the OB FAQ Supabase project has
+  **15 tables with Row Level Security disabled** — these are fully exposed to the
+  anon/authenticated roles. They are unrelated to this dashboard and were left
+  untouched:
+  `interview_calls`, `reconcile_runs`, `intv_candidates`, `intv_interviews`,
+  `intv_transcripts`, `intv_transcript_segments`, `intv_analyses`, `intv_scores`,
+  `intv_sync_logs`, `intv_notify_state`, `sqa_accountant_workload`,
+  `sqa_daily_plan`, `mqa_evaluations_dedup_backup`, `kk_accountant_aliases`,
+  `kk_problem_ratings`.
+  Enabling RLS **without** policies would block all access to them, so this is
+  surfaced for a human to decide — it is **not** auto-fixed here.
+  `client_telegram_chats` itself already has RLS enabled (authenticated only),
+  which is why we read it with the service role key.
+
 ## Migrations
 
 None required. The existing `client_telegram_chats` table (including `chat_link`)
 already supports everything this project needs, and no existing data or logic is
-modified.
+modified. Duplicate `chat_name` values (e.g. several `testchat1`) are
+disambiguated in the UI by client name, contract number and `telegram_chat_id`
+rather than by any schema change.

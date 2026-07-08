@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
     <title>Проблемные чаты · Ответственные</title>
     <style>
       :root {
@@ -12,9 +13,11 @@
         --muted: #6b7280;
         --border: #e5e7eb;
         --accent: #2563eb;
+        --accent-weak: rgba(37, 99, 235, 0.1);
         --danger-bg: #fee2e2;
         --danger-text: #b91c1c;
         --ok: #059669;
+        --skeleton: #e9ebef;
       }
       @media (prefers-color-scheme: dark) {
         :root {
@@ -24,9 +27,11 @@
           --muted: #9aa0aa;
           --border: #2a2e35;
           --accent: #60a5fa;
+          --accent-weak: rgba(96, 165, 250, 0.16);
           --danger-bg: #3a1d1d;
           --danger-text: #f87171;
           --ok: #34d399;
+          --skeleton: #23272e;
         }
       }
       * { box-sizing: border-box; }
@@ -38,8 +43,16 @@
         line-height: 1.45;
       }
       .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; }
+      .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
       header h1 { font-size: 1.25rem; margin: 4px 0 2px; }
-      header p { margin: 0 0 12px; color: var(--muted); font-size: 0.9rem; }
+      header p { margin: 0 0 4px; color: var(--muted); font-size: 0.9rem; }
+      .meta { color: var(--muted); font-size: 0.75rem; margin: 0 0 12px; }
+      .btn {
+        border: 1px solid var(--border); background: var(--card); color: var(--text);
+        border-radius: 10px; padding: 8px 12px; font-size: 0.8rem; cursor: pointer;
+        white-space: nowrap;
+      }
+      .btn:hover { border-color: var(--accent); }
 
       .stats {
         display: grid;
@@ -53,7 +66,15 @@
         border-radius: 12px;
         padding: 12px;
         text-align: center;
+        cursor: pointer;
+        transition: border-color 0.12s, background 0.12s;
+        font: inherit;
+        color: inherit;
       }
+      .stat:hover { border-color: var(--accent); }
+      .stat[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-weak); }
+      .stat[data-filter="total"] { cursor: default; }
+      .stat[data-filter="total"]:hover { border-color: var(--border); }
       .stat .num { font-size: 1.5rem; font-weight: 700; }
       .stat .lbl { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
 
@@ -73,22 +94,11 @@
         color: var(--text);
         font-size: 0.95rem;
       }
-      .chip {
-        border: 1px solid var(--border);
-        background: var(--card);
-        color: var(--text);
-        border-radius: 999px;
-        padding: 8px 14px;
-        font-size: 0.85rem;
-        cursor: pointer;
-        user-select: none;
-        white-space: nowrap;
+      #sort {
+        padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+        background: var(--card); color: var(--text); font-size: 0.9rem;
       }
-      .chip.active {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: #fff;
-      }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
       .list { display: flex; flex-direction: column; gap: 10px; }
       .row {
@@ -112,8 +122,8 @@
         font-size: 0.75rem;
         font-weight: 600;
       }
-      .link {
-        flex: 0 0 auto;
+      .actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+      .link, .copy {
         text-decoration: none;
         color: var(--accent);
         border: 1px solid var(--accent);
@@ -121,49 +131,113 @@
         padding: 7px 12px;
         font-size: 0.8rem;
         white-space: nowrap;
+        text-align: center;
+        background: transparent;
+        cursor: pointer;
       }
       .link.disabled { color: var(--muted); border-color: var(--border); pointer-events: none; }
+      .copy:disabled { color: var(--muted); border-color: var(--border); cursor: not-allowed; }
 
       .empty, .loading { text-align: center; color: var(--muted); padding: 40px 0; }
       .error { color: var(--danger-text); text-align: center; padding: 20px 0; }
       footer { text-align: center; color: var(--muted); font-size: 0.75rem; margin-top: 20px; }
 
+      /* Скелетоны загрузки */
+      .skeleton { pointer-events: none; }
+      .sk-bar { background: var(--skeleton); border-radius: 6px; height: 12px; animation: pulse 1.2s ease-in-out infinite; }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+      @media (prefers-reduced-motion: reduce) { .sk-bar { animation: none; } }
+
+      /* Тост */
+      #toast {
+        position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(20px);
+        background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px;
+        font-size: 0.85rem; opacity: 0; transition: opacity 0.2s, transform 0.2s;
+        pointer-events: none; z-index: 10;
+      }
+      #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+      .sr-only {
+        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+      }
+
       @media (max-width: 560px) {
         .stats { grid-template-columns: repeat(2, 1fr); }
         .row { flex-direction: column; }
-        .link { align-self: flex-start; }
+        .actions { flex-direction: row; flex-wrap: wrap; }
       }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <header>
-        <h1>Проблемные чаты</h1>
-        <p>Системный чек-лист: чаты без ответственных. Не отчёт о нарушениях.</p>
-      </header>
+      <div class="topbar">
+        <header>
+          <h1>Проблемные чаты</h1>
+          <p>Системный чек-лист: чаты без ответственных. Не отчёт о нарушениях.</p>
+          <p class="meta" id="meta"></p>
+        </header>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" id="refresh" type="button" aria-label="Обновить данные">↻ Обновить</button>
+          <button class="btn" id="csv" type="button" aria-label="Экспорт в CSV">CSV</button>
+          <button class="btn" id="logout" type="button" hidden>Выйти</button>
+        </div>
+      </div>
 
-      <section class="stats" id="stats">
-        <div class="stat"><div class="num" id="s-total">–</div><div class="lbl">Проблемных чатов</div></div>
-        <div class="stat"><div class="num" id="s-acc">–</div><div class="lbl">Без бухгалтера</div></div>
-        <div class="stat"><div class="num" id="s-head">–</div><div class="lbl">Без гл. бухгалтера</div></div>
-        <div class="stat"><div class="num" id="s-mgr">–</div><div class="lbl">Без менеджера</div></div>
+      <section class="stats" id="stats" aria-label="Сводка">
+        <button class="stat" data-filter="total" type="button" aria-disabled="true">
+          <div class="num" id="s-total">–</div><div class="lbl">Проблемных чатов</div>
+        </button>
+        <button class="stat" data-filter="accountant" type="button" aria-pressed="false">
+          <div class="num" id="s-acc">–</div><div class="lbl">Без бухгалтера</div>
+        </button>
+        <button class="stat" data-filter="head_accountant" type="button" aria-pressed="false">
+          <div class="num" id="s-head">–</div><div class="lbl">Без гл. бухгалтера</div>
+        </button>
+        <button class="stat" data-filter="manager" type="button" aria-pressed="false">
+          <div class="num" id="s-mgr">–</div><div class="lbl">Без менеджера</div>
+        </button>
       </section>
 
       <section class="controls">
-        <input id="search" type="search" placeholder="Поиск по названию чата…" autocomplete="off" />
-        <span class="chip" data-filter="accountant">Нет бухгалтера</span>
-        <span class="chip" data-filter="head_accountant">Нет гл. бухгалтера</span>
-        <span class="chip" data-filter="manager">Нет менеджера</span>
+        <input id="search" type="search" placeholder="Поиск по названию, клиенту, договору…"
+               autocomplete="off" aria-label="Поиск по чатам" />
+        <label class="sr-only" for="sort">Сортировка</label>
+        <select id="sort" aria-label="Сортировка">
+          <option value="missing">Сначала с бо́льшим числом пропусков</option>
+          <option value="name">По названию (А→Я)</option>
+          <option value="updated">Сначала недавно изменённые</option>
+        </select>
       </section>
 
-      <section id="list" class="list"></section>
+      <section id="list" class="list" aria-live="polite" aria-busy="true"></section>
       <div id="msg" class="loading">Загрузка…</div>
 
       <footer id="footer"></footer>
     </div>
+    <div id="toast" role="status" aria-live="polite"></div>
 
     <script>
-      const state = { all: [], filters: new Set(), search: "" };
+      const state = { all: [], filters: new Set(), search: "", sort: "missing" };
+
+      const el = (id) => document.getElementById(id);
+
+      function toast(text) {
+        const t = el("toast");
+        t.textContent = text;
+        t.classList.add("show");
+        clearTimeout(t._timer);
+        t._timer = setTimeout(() => t.classList.remove("show"), 2200);
+      }
+
+      function fmtDate(iso) {
+        if (!iso) return "—";
+        try {
+          return new Date(iso).toLocaleString("ru-RU", {
+            day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+          });
+        } catch { return iso; }
+      }
 
       function missingTags(c) {
         const tags = [];
@@ -173,10 +247,40 @@
         return tags;
       }
 
-      function render() {
+      // Уточняющая подпись: клиент · договор · id (для одинаковых названий).
+      function subtitle(c) {
+        const parts = [];
+        if (c.client_name) parts.push(c.client_name);
+        if (c.contract_number) parts.push("Договор: " + c.contract_number);
+        if (c.ambiguous && c.telegram_chat_id) parts.push("ID: " + c.telegram_chat_id);
+        if (c.status) parts.push(c.status);
+        return parts.join(" · ");
+      }
+
+      function showSkeletons() {
+        const list = el("list");
+        list.setAttribute("aria-busy", "true");
+        list.innerHTML = "";
+        el("msg").textContent = "";
+        for (let i = 0; i < 4; i++) {
+          const row = document.createElement("div");
+          row.className = "row skeleton";
+          row.innerHTML =
+            '<div style="flex:1"><div class="sk-bar" style="width:55%;height:16px"></div>' +
+            '<div class="sk-bar" style="width:35%;margin-top:8px"></div>' +
+            '<div class="sk-bar" style="width:70%;margin-top:10px"></div></div>' +
+            '<div class="sk-bar" style="width:90px;height:32px"></div>';
+          list.appendChild(row);
+        }
+      }
+
+      function currentFiltered() {
         const q = state.search.trim().toLowerCase();
-        const filtered = state.all.filter((c) => {
-          if (q && !(c.chat_name || "").toLowerCase().includes(q)) return false;
+        let filtered = state.all.filter((c) => {
+          if (q) {
+            const hay = [c.chat_name, c.client_name, c.contract_number].filter(Boolean).join(" ").toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
           for (const f of state.filters) {
             if (f === "accountant" && !c.missing_accountant) return false;
             if (f === "head_accountant" && !c.missing_head_accountant) return false;
@@ -185,8 +289,23 @@
           return true;
         });
 
-        const list = document.getElementById("list");
-        const msg = document.getElementById("msg");
+        const collator = new Intl.Collator("ru");
+        if (state.sort === "name") {
+          filtered.sort((a, b) => collator.compare(a.chat_name, b.chat_name));
+        } else if (state.sort === "updated") {
+          filtered.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+        } else {
+          // По числу пропусков (убыв.), затем по названию.
+          filtered.sort((a, b) => b.missing_count - a.missing_count || collator.compare(a.chat_name, b.chat_name));
+        }
+        return filtered;
+      }
+
+      function render() {
+        const filtered = currentFiltered();
+        const list = el("list");
+        const msg = el("msg");
+        list.setAttribute("aria-busy", "false");
         list.innerHTML = "";
 
         if (filtered.length === 0) {
@@ -199,7 +318,7 @@
         msg.textContent = "";
 
         for (const c of filtered) {
-          const row = document.createElement("div");
+          const row = document.createElement("article");
           row.className = "row";
 
           const left = document.createElement("div");
@@ -208,26 +327,26 @@
           name.textContent = c.chat_name;
           left.appendChild(name);
 
-          const subParts = [];
-          if (c.client_name) subParts.push(c.client_name);
-          if (c.contract_number) subParts.push("Договор: " + c.contract_number);
-          if (c.status) subParts.push(c.status);
-          if (subParts.length) {
+          const subText = subtitle(c);
+          if (subText) {
             const sub = document.createElement("div");
             sub.className = "sub";
-            sub.textContent = subParts.join(" · ");
+            sub.textContent = subText;
             left.appendChild(sub);
           }
 
           const tags = document.createElement("div");
           tags.className = "tags";
           for (const t of missingTags(c)) {
-            const el = document.createElement("span");
-            el.className = "tag";
-            el.textContent = t;
-            tags.appendChild(el);
+            const tagEl = document.createElement("span");
+            tagEl.className = "tag";
+            tagEl.textContent = t;
+            tags.appendChild(tagEl);
           }
           left.appendChild(tags);
+
+          const actions = document.createElement("div");
+          actions.className = "actions";
 
           const link = document.createElement("a");
           if (c.chat_link) {
@@ -236,51 +355,111 @@
             link.rel = "noopener";
             link.className = "link";
             link.textContent = "Открыть чат";
+            link.setAttribute("aria-label", "Открыть чат " + c.chat_name);
           } else {
             link.className = "link disabled";
             link.textContent = "Нет ссылки";
+            link.setAttribute("aria-disabled", "true");
           }
+          actions.appendChild(link);
+
+          const copy = document.createElement("button");
+          copy.type = "button";
+          copy.className = "copy";
+          copy.textContent = "Копировать ссылку";
+          if (!c.chat_link) copy.disabled = true;
+          copy.setAttribute("aria-label", "Копировать ссылку на чат " + c.chat_name);
+          copy.addEventListener("click", () => copyLink(c.chat_link));
+          actions.appendChild(copy);
 
           row.appendChild(left);
-          row.appendChild(link);
+          row.appendChild(actions);
           list.appendChild(row);
         }
       }
 
-      async function load() {
+      async function copyLink(url) {
+        if (!url) return;
         try {
-          const res = await fetch("/api/problem-chats");
+          await navigator.clipboard.writeText(url);
+          toast("Ссылка скопирована");
+        } catch {
+          // Резервный способ, если clipboard API недоступен (напр. без HTTPS).
+          const ta = document.createElement("textarea");
+          ta.value = url; document.body.appendChild(ta); ta.select();
+          try { document.execCommand("copy"); toast("Ссылка скопирована"); }
+          catch { toast("Не удалось скопировать"); }
+          ta.remove();
+        }
+      }
+
+      function toCsv() {
+        const rows = currentFiltered();
+        if (rows.length === 0) { toast("Нет данных для экспорта"); return; }
+        const header = ["Чат", "Клиент", "Договор", "Telegram ID", "Нет бухгалтера", "Нет гл. бухгалтера", "Нет менеджера", "Ссылка", "Обновлён"];
+        const esc = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+        const yn = (b) => (b ? "да" : "");
+        const lines = [header.map(esc).join(",")];
+        for (const c of rows) {
+          lines.push([
+            c.chat_name, c.client_name, c.contract_number, c.telegram_chat_id,
+            yn(c.missing_accountant), yn(c.missing_head_accountant), yn(c.missing_manager),
+            c.chat_link, c.updated_at,
+          ].map(esc).join(","));
+        }
+        // BOM, чтобы Excel корректно открыл кириллицу в UTF-8.
+        const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "problem-chats.csv";
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast("Экспортировано: " + rows.length);
+      }
+
+      async function load() {
+        showSkeletons();
+        try {
+          const res = await fetch("/api/problem-chats", { headers: { Accept: "application/json" } });
+          if (res.status === 401) { location.href = "/login"; return; }
           const data = await res.json();
           if (!data.ok) throw new Error(data.error || "Ошибка загрузки");
           state.all = data.chats;
-          document.getElementById("s-total").textContent = data.counts.total_problems;
-          document.getElementById("s-acc").textContent = data.counts.missing_accountant;
-          document.getElementById("s-head").textContent = data.counts.missing_head_accountant;
-          document.getElementById("s-mgr").textContent = data.counts.missing_manager;
-          document.getElementById("footer").textContent =
-            "Всего чатов в системе: " + data.counts.total_chats;
+          el("s-total").textContent = data.counts.total_problems;
+          el("s-acc").textContent = data.counts.missing_accountant;
+          el("s-head").textContent = data.counts.missing_head_accountant;
+          el("s-mgr").textContent = data.counts.missing_manager;
+          el("footer").textContent = "Всего чатов в системе: " + data.counts.total_chats;
+          el("meta").textContent =
+            "Данные актуальны на " + fmtDate(data.counts.data_updated_at) +
+            " · загружено " + fmtDate(data.generated_at);
+          el("logout").hidden = false;
           render();
         } catch (err) {
-          const msg = document.getElementById("msg");
+          el("list").innerHTML = "";
+          el("list").setAttribute("aria-busy", "false");
+          const msg = el("msg");
           msg.textContent = "Ошибка: " + err.message;
           msg.className = "error";
         }
       }
 
-      document.getElementById("search").addEventListener("input", (e) => {
-        state.search = e.target.value;
-        render();
+      // --- Обработчики ---
+      el("search").addEventListener("input", (e) => { state.search = e.target.value; render(); });
+      el("sort").addEventListener("change", (e) => { state.sort = e.target.value; render(); });
+      el("refresh").addEventListener("click", load);
+      el("csv").addEventListener("click", toCsv);
+      el("logout").addEventListener("click", async () => {
+        await fetch("/logout", { method: "POST" });
+        location.href = "/login";
       });
-      document.querySelectorAll(".chip").forEach((chip) => {
-        chip.addEventListener("click", () => {
-          const f = chip.dataset.filter;
-          if (state.filters.has(f)) {
-            state.filters.delete(f);
-            chip.classList.remove("active");
-          } else {
-            state.filters.add(f);
-            chip.classList.add("active");
-          }
+
+      // Плитки-фильтры (кроме «всего»). Работают мышью и с клавиатуры (это <button>).
+      document.querySelectorAll('.stat[aria-pressed]').forEach((tile) => {
+        tile.addEventListener("click", () => {
+          const f = tile.dataset.filter;
+          if (state.filters.has(f)) { state.filters.delete(f); tile.setAttribute("aria-pressed", "false"); }
+          else { state.filters.add(f); tile.setAttribute("aria-pressed", "true"); }
           render();
         });
       });

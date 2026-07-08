@@ -21,6 +21,12 @@ services:
         value: https://fjsogozwseqoxgddjeig.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      # Общий пароль доступа к дашборду — задать в Render (sync:false).
+      # Если не задан, дашборд открыт без пароля (только для локальной разработки).
+      - key: ACCESS_PASSWORD
+        sync: false
+      - key: NODE_ENV
+        value: production
 
   - type: cron
     name: ob-chat-checklist-daily
