@@ -186,7 +186,7 @@
 
       <section class="stats" id="stats" aria-label="Сводка">
         <button class="stat" data-filter="total" type="button" aria-disabled="true">
-          <div class="num" id="s-total">–</div><div class="lbl">Проблемных чатов</div>
+          <div class="num" id="s-total">–</div><div class="lbl">С неполной инф.</div>
         </button>
         <button class="stat" data-filter="accountant" type="button" aria-pressed="false">
           <div class="num" id="s-acc">–</div><div class="lbl">Без бухгалтера</div>
@@ -200,7 +200,7 @@
       </section>
 
       <section class="controls">
-        <input id="search" type="search" placeholder="Поиск по названию, клиенту, договору…"
+        <input id="search" type="search" placeholder="Поиск по названию или Chat ID…"
                autocomplete="off" aria-label="Поиск по чатам" />
         <label class="sr-only" for="sort">Сортировка</label>
         <select id="sort" aria-label="Сортировка">
@@ -247,14 +247,9 @@
         return tags;
       }
 
-      // Уточняющая подпись: клиент · договор · id (для одинаковых названий).
+      // Подпись под названием: Chat ID (как в отчёте).
       function subtitle(c) {
-        const parts = [];
-        if (c.client_name) parts.push(c.client_name);
-        if (c.contract_number) parts.push("Договор: " + c.contract_number);
-        if (c.ambiguous && c.telegram_chat_id) parts.push("ID: " + c.telegram_chat_id);
-        if (c.status) parts.push(c.status);
-        return parts.join(" · ");
+        return c.chat_id ? "Chat ID: " + c.chat_id : "";
       }
 
       function showSkeletons() {
@@ -278,7 +273,7 @@
         const q = state.search.trim().toLowerCase();
         let filtered = state.all.filter((c) => {
           if (q) {
-            const hay = [c.chat_name, c.client_name, c.contract_number].filter(Boolean).join(" ").toLowerCase();
+            const hay = [c.chat_name, c.chat_id].filter(Boolean).join(" ").toLowerCase();
             if (!hay.includes(q)) return false;
           }
           for (const f of state.filters) {
@@ -293,7 +288,7 @@
         if (state.sort === "name") {
           filtered.sort((a, b) => collator.compare(a.chat_name, b.chat_name));
         } else if (state.sort === "updated") {
-          filtered.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+          filtered.sort((a, b) => (b.checked_at || "").localeCompare(a.checked_at || ""));
         } else {
           // По числу пропусков (убыв.), затем по названию.
           filtered.sort((a, b) => b.missing_count - a.missing_count || collator.compare(a.chat_name, b.chat_name));
@@ -311,12 +306,11 @@
         if (filtered.length === 0) {
           const c = state.counts;
           if (c && c.total_chats === 0) {
-            // Реальных чатов нет вовсе (например, все имеющиеся — тестовые).
             msg.textContent = c.excluded_test
-              ? `Реальных чатов пока нет — скрыто тестовых: ${c.excluded_test}.`
-              : "Реальных чатов пока нет.";
+              ? `Чатов для проверки нет — скрыто тестовых: ${c.excluded_test}.`
+              : "Чатов для проверки пока нет.";
           } else if (state.all.length === 0) {
-            msg.textContent = "Проблемных чатов нет 🎉";
+            msg.textContent = "Все чаты укомплектованы 🎉";
           } else {
             msg.textContent = "Ничего не найдено по заданным условиям.";
           }
@@ -356,28 +350,13 @@
           const actions = document.createElement("div");
           actions.className = "actions";
 
-          const link = document.createElement("a");
-          if (c.chat_link) {
-            link.href = c.chat_link;
-            link.target = "_blank";
-            link.rel = "noopener";
-            link.className = "link";
-            link.textContent = "Открыть чат";
-            link.setAttribute("aria-label", "Открыть чат " + c.chat_name);
-          } else {
-            link.className = "link disabled";
-            link.textContent = "Нет ссылки";
-            link.setAttribute("aria-disabled", "true");
-          }
-          actions.appendChild(link);
-
           const copy = document.createElement("button");
           copy.type = "button";
           copy.className = "copy";
-          copy.textContent = "Копировать ссылку";
-          if (!c.chat_link) copy.disabled = true;
-          copy.setAttribute("aria-label", "Копировать ссылку на чат " + c.chat_name);
-          copy.addEventListener("click", () => copyLink(c.chat_link));
+          copy.textContent = "Копировать ID";
+          if (!c.chat_id) copy.disabled = true;
+          copy.setAttribute("aria-label", "Копировать Chat ID чата " + c.chat_name);
+          copy.addEventListener("click", () => copyText(c.chat_id, "Chat ID скопирован"));
           actions.appendChild(copy);
 
           row.appendChild(left);
@@ -386,16 +365,16 @@
         }
       }
 
-      async function copyLink(url) {
-        if (!url) return;
+      async function copyText(text, okMsg) {
+        if (!text) return;
         try {
-          await navigator.clipboard.writeText(url);
-          toast("Ссылка скопирована");
+          await navigator.clipboard.writeText(String(text));
+          toast(okMsg);
         } catch {
           // Резервный способ, если clipboard API недоступен (напр. без HTTPS).
           const ta = document.createElement("textarea");
-          ta.value = url; document.body.appendChild(ta); ta.select();
-          try { document.execCommand("copy"); toast("Ссылка скопирована"); }
+          ta.value = String(text); document.body.appendChild(ta); ta.select();
+          try { document.execCommand("copy"); toast(okMsg); }
           catch { toast("Не удалось скопировать"); }
           ta.remove();
         }
@@ -404,15 +383,15 @@
       function toCsv() {
         const rows = currentFiltered();
         if (rows.length === 0) { toast("Нет данных для экспорта"); return; }
-        const header = ["Чат", "Клиент", "Договор", "Telegram ID", "Нет бухгалтера", "Нет гл. бухгалтера", "Нет менеджера", "Ссылка", "Обновлён"];
+        const header = ["Чат", "Chat ID", "Нет бухгалтера", "Нет гл. бухгалтера", "Нет менеджера", "Проверено"];
         const esc = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
         const yn = (b) => (b ? "да" : "");
         const lines = [header.map(esc).join(",")];
         for (const c of rows) {
           lines.push([
-            c.chat_name, c.client_name, c.contract_number, c.telegram_chat_id,
+            c.chat_name, c.chat_id,
             yn(c.missing_accountant), yn(c.missing_head_accountant), yn(c.missing_manager),
-            c.chat_link, c.updated_at,
+            c.checked_at,
           ].map(esc).join(","));
         }
         // BOM, чтобы Excel корректно открыл кириллицу в UTF-8.
@@ -438,7 +417,7 @@
           el("s-acc").textContent = data.counts.missing_accountant;
           el("s-head").textContent = data.counts.missing_head_accountant;
           el("s-mgr").textContent = data.counts.missing_manager;
-          let footer = "Всего реальных чатов: " + data.counts.total_chats;
+          let footer = "Всего чатов проверено: " + data.counts.total_chats;
           if (data.counts.excluded_test) footer += " · тестовых скрыто: " + data.counts.excluded_test;
           el("footer").textContent = footer;
           el("meta").textContent =

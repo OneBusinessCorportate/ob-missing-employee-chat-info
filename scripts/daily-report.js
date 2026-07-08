@@ -37,7 +37,7 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL) {
     // тестовые, которые исключаются) — чтобы не создавать ложного «всё ок».
     let msg =
       counts.total_chats === 0
-        ? "ℹ️ Реальных чатов для проверки пока нет."
+        ? "ℹ️ Чатов для проверки пока нет."
         : "✅ Все чаты в порядке — проблемных чатов нет.";
     if (platformUrl) {
       msg += `\n\nЧтобы увидеть больше информации, перейдите по ссылке:\n${platformUrl}`;
@@ -46,7 +46,10 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL) {
   }
 
   const lines = [
-    `У нас есть ${counts.total_problems} проблемных чатов, из которых:`,
+    "📋 Ежедневная проверка ответственных в чатах",
+    "",
+    `Всего чатов проверено: ${counts.total_chats}`,
+    `Чатов с неполной информацией: ${counts.total_problems}`,
     "",
     `• ${counts.missing_accountant} без бухгалтера`,
     `• ${counts.missing_head_accountant} без главного бухгалтера`,

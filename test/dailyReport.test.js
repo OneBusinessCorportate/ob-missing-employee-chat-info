@@ -1,34 +1,36 @@
-// Тесты формирования текста ежедневной сводки, включая позитивный путь «0 проблем».
+// Тесты формирования текста ежедневной сводки, включая позитивные пути.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildMessage } from "../scripts/daily-report.js";
 
 test("0 проблем при наличии чатов — позитивное сообщение со ссылкой", () => {
-  const msg = buildMessage({ total_problems: 0, total_chats: 5 }, "https://example.org");
+  const msg = buildMessage({ total_problems: 0, total_chats: 700 }, "https://example.org");
   assert.match(msg, /Все чаты в порядке/);
   assert.match(msg, /https:\/\/example\.org/);
 });
 
-test("нет реальных чатов — отдельное сообщение, не ложное «всё ок»", () => {
+test("нет чатов для проверки — отдельное сообщение, не ложное «всё ок»", () => {
   const msg = buildMessage({ total_problems: 0, total_chats: 0 }, "https://example.org");
-  assert.match(msg, /Реальных чатов для проверки пока нет/);
+  assert.match(msg, /Чатов для проверки пока нет/);
   assert.doesNotMatch(msg, /в порядке/);
 });
 
-test("0 проблем без PLATFORM_URL — без ссылки, но не падает", () => {
-  const msg = buildMessage({ total_problems: 0 }, "");
+test("0 проблем без PLATFORM_URL — без ссылки, не падает", () => {
+  const msg = buildMessage({ total_problems: 0, total_chats: 700 }, "");
   assert.match(msg, /Все чаты в порядке/);
   assert.doesNotMatch(msg, /http/);
 });
 
-test("есть проблемы — перечисляет счётчики и даёт ссылку", () => {
+test("есть проблемы — формат отчёта со счётчиками и ссылкой", () => {
   const msg = buildMessage(
-    { total_problems: 7, missing_accountant: 3, missing_head_accountant: 5, missing_manager: 3 },
+    { total_chats: 727, total_problems: 235, missing_accountant: 62, missing_head_accountant: 208, missing_manager: 206 },
     "https://dash.example",
   );
-  assert.match(msg, /7 проблемных чатов/);
-  assert.match(msg, /3 без бухгалтера/);
-  assert.match(msg, /5 без главного бухгалтера/);
-  assert.match(msg, /3 без менеджера/);
+  assert.match(msg, /Ежедневная проверка/);
+  assert.match(msg, /Всего чатов проверено: 727/);
+  assert.match(msg, /Чатов с неполной информацией: 235/);
+  assert.match(msg, /62 без бухгалтера/);
+  assert.match(msg, /208 без главного бухгалтера/);
+  assert.match(msg, /206 без менеджера/);
   assert.match(msg, /https:\/\/dash\.example/);
 });

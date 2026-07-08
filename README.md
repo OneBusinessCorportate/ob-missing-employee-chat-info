@@ -9,16 +9,65 @@ the old Google Sheet, so the whole team can see all mismatches in one place.
 It has two parts:
 
 1. **Dashboard** (`server.js` + `public/`) — a clean, mobile-friendly web page
-   listing every problematic chat, what it is missing, and a link to the chat.
-   Protected by a shared-password login, with role filters, name/client/contract
-   search, sorting, CSV export, copy-link, manual refresh and a "last updated"
+   listing every problematic chat, what it is missing, and its Chat ID.
+   Protected by a shared-password login, with role filters, name/Chat-ID search,
+   sorting, CSV export, copy-Chat-ID, manual refresh and a "last checked"
    timestamp.
 2. **Daily Telegram summary** (`scripts/daily-report.js`) — posts only a short
-   summary + a link to the dashboard. It never posts the full list anymore.
+   summary + a link to the dashboard. It never posts the full list.
    Sends with retry/backoff, structured JSON logs and optional idempotency.
 
 Both share `lib/problemChats.js`, so the counts in Telegram always match the
 dashboard. Auth + rate limiting live in `lib/auth.js`.
+
+## Data source
+
+The checklist reads the **real** chat/responsibility data in the **OB FAQ**
+Supabase project (`fjsogozwseqoxgddjeig`):
+
+- **`public.chats`** — the Telegram chats (`chat_id`, `chat_name`, `is_active`,
+  `excluded_from_qa`). Only `is_active AND NOT excluded_from_qa` chats are checked.
+- **`public.chat_employee_presence`** — who is present in each chat, with
+  `employee_role` (`accountant` / `head_accountant` / `manager` / …) and
+  `is_present`.
+
+A read-only view **`public.v_chat_missing_responsibles`** aggregates these into
+one row per checked chat with `has_accountant` / `has_head_accountant` /
+`has_manager` / `checked_at`. The app selects from that view (server-side, with
+the service role key). See [Migrations](#migrations).
+
+> The older `public.client_telegram_chats` table (participants jsonb) held only
+> QA/test rows and is **not** used anymore.
+
+## What counts as a "problem"
+
+A chat is problematic when it is missing **at least one** of these roles:
+
+| Role            | "Missing" means…                                          |
+| --------------- | --------------------------------------------------------- |
+| Accountant      | no present employee with role `accountant`                |
+| Head Accountant | no present employee with role `head_accountant`           |
+| Manager         | no present employee with role `manager`                   |
+
+The dashboard and summary report:
+
+- how many chats were checked (`is_active`, not excluded from QA),
+- how many have incomplete info (missing ≥1 role),
+- how many are missing an Accountant / Head Accountant / Manager.
+
+(A chat missing two roles is counted once in the total and once under each role
+it is missing, so the per-role numbers can add up to more than the total.)
+
+### Test chats are excluded
+
+QA/test chats (e.g. `testchat67`) are filtered out so the checklist only shows
+real client chats. By default any chat whose name starts with `test`
+(case-insensitive) is excluded from the list **and** the counts; the number
+hidden is shown as "тестовых скрыто".
+
+- `EXCLUDE_TEST_CHATS=0` — turn the filter off (show everything, matching the
+  raw daily report).
+- `TEST_CHAT_PATTERN` — override the regex (e.g. `^(test|qa)-`).
 
 ## Tests
 
@@ -26,51 +75,11 @@ dashboard. Auth + rate limiting live in `lib/auth.js`.
 npm test        # node:test — covers computeProblems, auth, the daily message
 ```
 
-Coverage includes: all roles present, each role missing, multiple missing,
-absent `participants`, the pluralised-column fallback
-(`accountants`/`head_accountants`/`managers`), duplicate-name detection, the
-counts, and a regression lock on the known baseline (14 chats → 7 problems →
-3 / 5 / 3). CI runs the same suite on every push/PR
+Coverage includes: all roles present, each role missing, multiple missing, no
+presence rows at all, `chat_id` normalisation, duplicate-name detection,
+test-chat exclusion (default, custom pattern), the counts, and a regression that
+reproduces real report verdicts. CI runs the same suite on every push/PR
 (`.github/workflows/ci.yml`).
-
-## What counts as a "problem"
-
-A chat is problematic when it is missing **at least one** of these roles:
-
-| Role            | Source (jsonb)                    |
-| --------------- | --------------------------------- |
-| Accountant      | `participants.accountant`         |
-| Head Accountant | `participants.head_accountant`    |
-| Manager         | `participants.manager`            |
-
-### Test chats are excluded
-
-QA/test chats (currently every row in the table is one — named `testchat…`,
-created by "Lina") are **filtered out** so the checklist only shows real client
-chats. By default any chat whose name starts with `test` (case-insensitive) is
-excluded from the list **and** the counts; the number hidden is shown as
-"тестовых скрыто". Real chats appear automatically as soon as they are added.
-
-- `EXCLUDE_TEST_CHATS=0` — turn the filter off (show everything).
-- `TEST_CHAT_PATTERN` — override the regex (e.g. `^(test|qa)-`).
-
-Because the table currently contains **only** test chats, the live dashboard
-shows 0 real chats until real ones are added.
-
-"Missing" simply means the role's array is empty or absent. The dashboard and
-summary report:
-
-- total number of problematic chats,
-- how many are missing an Accountant,
-- how many are missing a Head Accountant,
-- how many are missing a Manager.
-
-(A chat missing two roles is counted once in the total and once under each role
-it is missing, so the per-role numbers can add up to more than the total.)
-
-Data lives in the Supabase table **`public.client_telegram_chats`** in the
-**OB FAQ** project (`fjsogozwseqoxgddjeig`). No schema change is required — the
-`chat_link` column already exists for the Telegram chat links.
 
 ## Running locally
 
@@ -92,6 +101,8 @@ npm run daily-report      # send the daily summary (use DRY_RUN=1 to preview)
 | `ACCESS_PASSWORD`           | dashboard          | Shared login password. If unset, the dashboard is **open** (dev only) — set it in production. |
 | `SESSION_SECRET`            | dashboard          | Optional. HMAC secret for the session cookie; derived from `ACCESS_PASSWORD` if unset. |
 | `NODE_ENV`                  | dashboard          | Set to `production` on Render so the session cookie is `Secure`. |
+| `EXCLUDE_TEST_CHATS`        | dashboard + report | `0` to show test chats too. Default: exclude them.          |
+| `TEST_CHAT_PATTERN`         | dashboard + report | Optional regex for what counts as a test chat (default `^test`). |
 | `TELEGRAM_BOT_TOKEN`        | report             | Bot that posts the daily summary.                           |
 | `TELEGRAM_CHAT_ID`          | report             | Chat/group the summary is posted to.                        |
 | `PLATFORM_URL`              | report             | Public dashboard URL — the link inside the Telegram message.|
@@ -109,8 +120,7 @@ request is checked against it. `/healthz` stays public for Render. The
 (60/min and 10/min per IP). If `ACCESS_PASSWORD` is not set the gate is
 disabled and the server logs a warning — **always set it in production.**
 
-`client_telegram_chats` has Row Level Security enabled and only allows
-authenticated, non-restricted users. The dashboard therefore reads it
+The underlying tables have Row Level Security enabled. The dashboard reads them
 **server-side with the service role key** and exposes a read-only
 `/api/problem-chats` endpoint; the browser never sees the key or talks to
 Supabase directly.
@@ -121,20 +131,17 @@ The link that goes into the Telegram message is the **`PLATFORM_URL`** env var
 on the daily-report cron job. After the dashboard is deployed, set `PLATFORM_URL`
 to its public URL (e.g. `https://ob-chat-checklist-dashboard.onrender.com`).
 
-## How to add / update Telegram chat links
+## How chats / roles are maintained
 
-The link shown on the dashboard ("Открыть чат") and the chat data come from the
-`client_telegram_chats` table. To set or change a chat link, update the
-`chat_link` column for that row, e.g. in the Supabase SQL editor:
+Chat and responsibility data is produced by the existing OB pipeline that fills
+`public.chats` and `public.chat_employee_presence`; this project only **reads**
+them (via the view) and never writes. To change what shows up:
 
-```sql
-update public.client_telegram_chats
-set chat_link = 'https://t.me/+XXXXXXXX'
-where id = '<chat-uuid>';        -- or: where chat_name = '...'
-```
-
-Chats without a `chat_link` still appear in the list; their button just shows
-"Нет ссылки" until a link is added.
+- exclude a chat → set `excluded_from_qa = true` (or `is_active = false`) on the
+  `public.chats` row;
+- fix a "missing role" → make sure the responsible person has an
+  `chat_employee_presence` row for that `chat_id` with the right `employee_role`
+  and `is_present = true`.
 
 ## Deploying on Render
 
@@ -144,9 +151,9 @@ Chats without a `chat_link` still appear in the list; their button just shows
 - **`ob-chat-checklist-daily`** — a cron job (`npm run daily-report`), scheduled
   at `0 4 * * *` (08:00 Asia/Yerevan). Adjust the schedule as needed.
 
-Set the secret env vars (`SUPABASE_SERVICE_ROLE_KEY`, `TELEGRAM_BOT_TOKEN`,
-`TELEGRAM_CHAT_ID`, `PLATFORM_URL`) in the Render dashboard — they are marked
-`sync: false` and are not stored in the repo.
+Set the secret env vars (`SUPABASE_SERVICE_ROLE_KEY`, `ACCESS_PASSWORD`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `PLATFORM_URL`) in the Render
+dashboard — they are marked `sync: false` and are not stored in the repo.
 
 The cron `schedule: "0 4 * * *"` is 04:00 UTC = **08:00 Asia/Yerevan**. Change
 the cron string in `render.yaml` to move the send time.
@@ -156,24 +163,24 @@ the cron string in `render.yaml` to move the send time.
 - The Supabase **service role key never reaches the browser** — the dashboard
   reads Supabase only server-side and exposes a read-only API.
 - `/api/problem-chats` and `/login` are rate-limited (see *Access control*).
-- **Heads-up (not changed by this project):** the OB FAQ Supabase project has
-  **15 tables with Row Level Security disabled** — these are fully exposed to the
-  anon/authenticated roles. They are unrelated to this dashboard and were left
-  untouched:
+- The `v_chat_missing_responsibles` view is `security_invoker` and not granted to
+  `anon`/`authenticated`, so it cannot leak the underlying RLS-protected data
+  through the public API.
+- **Heads-up (pre-existing, not changed by this project):** the OB FAQ Supabase
+  project has **15 tables with Row Level Security disabled** — fully exposed to
+  the anon/authenticated roles. They are unrelated to this dashboard and were
+  left untouched:
   `interview_calls`, `reconcile_runs`, `intv_candidates`, `intv_interviews`,
   `intv_transcripts`, `intv_transcript_segments`, `intv_analyses`, `intv_scores`,
   `intv_sync_logs`, `intv_notify_state`, `sqa_accountant_workload`,
   `sqa_daily_plan`, `mqa_evaluations_dedup_backup`, `kk_accountant_aliases`,
-  `kk_problem_ratings`.
-  Enabling RLS **without** policies would block all access to them, so this is
-  surfaced for a human to decide — it is **not** auto-fixed here.
-  `client_telegram_chats` itself already has RLS enabled (authenticated only),
-  which is why we read it with the service role key.
+  `kk_problem_ratings`. Enabling RLS **without** policies would block all access,
+  so this is surfaced for a human to decide — it is **not** auto-fixed here.
 
 ## Migrations
 
-None required. The existing `client_telegram_chats` table (including `chat_link`)
-already supports everything this project needs, and no existing data or logic is
-modified. Duplicate `chat_name` values (e.g. several `testchat1`) are
-disambiguated in the UI by client name, contract number and `telegram_chat_id`
-rather than by any schema change.
+One **additive, read-only** migration: it creates the
+`public.v_chat_missing_responsibles` view over the existing `chats` and
+`chat_employee_presence` tables (see `sql/`). No existing table, data or logic is
+modified. The view is `security_invoker = true` and its access is revoked from
+`anon`/`authenticated`.
