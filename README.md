@@ -32,8 +32,10 @@ Supabase project (`fjsogozwseqoxgddjeig`):
   …) and `is_present`.
 - **`public.messages`** — actual messages, each with a `sender_role`. If a staff
   member of a role has written in the chat, that role is treated as present too
-  (hard evidence of participation — the membership check occasionally fails with
-  "member not found" and similar).
+  (hard evidence of participation — the bot's membership check occasionally fails
+  with "member not found" and similar). To fix those failures at the source you
+  can refresh membership with a Telegram **user account** — see
+  [Refreshing presence via a Telegram user account](#refreshing-presence-via-a-telegram-user-account-phone-login).
 
 A read-only view **`public.v_chat_missing_responsibles`** aggregates these into
 one row per chat with `has_accountant` / `has_head_accountant` / `has_manager`
@@ -102,9 +104,13 @@ npm install
 cp .env.example .env      # fill in the values
 npm start                 # dashboard on http://localhost:3000
 npm run daily-report      # send the daily summary (use DRY_RUN=1 to preview)
+npm run telegram-login    # one-time: log in by phone, get the session string
+npm run telegram-sync     # refresh presence from real Telegram membership
 ```
 
 `DRY_RUN=1 npm run daily-report` prints the message instead of sending it.
+`DRY_RUN=1 npm run telegram-sync` scans Telegram and reports what it *would*
+write, without touching Supabase.
 
 ## Environment variables
 
@@ -120,6 +126,11 @@ npm run daily-report      # send the daily summary (use DRY_RUN=1 to preview)
 | `TELEGRAM_BOT_TOKEN`        | report             | Bot that posts the daily summary.                           |
 | `TELEGRAM_CHAT_ID`          | report             | Chat/group the summary is posted to.                        |
 | `PLATFORM_URL`              | report             | Public dashboard URL — the link inside the Telegram message.|
+| `TELEGRAM_API_ID`           | telegram-sync      | MTProto **api_id** from my.telegram.org (user-account sync).|
+| `TELEGRAM_API_HASH`         | telegram-sync      | MTProto **api_hash** from my.telegram.org.                  |
+| `TELEGRAM_SESSION`          | telegram-sync      | Session string from `npm run telegram-login`. **Secret** — full account access. |
+| `SYNC_ALL_CHATS`            | telegram-sync      | `1` to write presence for every group the account is in (default: only chats in `public.chats`). |
+| `SYNC_CHAT_LIMIT`           | telegram-sync      | Optional. Process at most N groups (debugging).             |
 | `PORT`                      | dashboard          | Render sets this automatically.                             |
 | `DRY_RUN`                   | report             | `1` to print instead of send.                              |
 | `REPORT_STATE_FILE`         | report             | Optional. Path to a JSON file so the summary is not sent twice in one day. |
@@ -157,16 +168,80 @@ them (via the view) and never writes. To change what shows up:
   `chat_employee_presence` row for that `chat_id` with the right `employee_role`
   and `is_present = true`.
 
+## Refreshing presence via a Telegram **user account** (phone login)
+
+The presence data (`chat_employee_presence`) was originally filled by a **bot**
+using the Bot API. The Bot API can only check membership one user at a time
+(`getChatMember`) and fails constantly — the table is full of statuses like
+`member not found`, `chat not found`, `PARTICIPANT_ID_INVALID` and
+`bot was kicked from the group chat`. Every such failure becomes a false
+`is_present = false`, so a chat looks like it is "missing a responsible" when the
+person is actually there.
+
+A **user account** (logged in by phone number via MTProto — exactly the
+`my.telegram.org` → `api_id`/`api_hash` flow) can do what a bot cannot: read the
+**full participant list** of every group it belongs to. This project ships a
+sync that uses that to write authoritative presence rows.
+
+It is written in **Node with [GramJS](https://github.com/gram-js/gram-js)** (the
+Node equivalent of Telethon/Pyrogram) so it lives in the same codebase, reuses
+the same Supabase client, and deploys as another Render cron job.
+
+### One-time setup
+
+1. Go to **my.telegram.org** → log in with your Telegram phone number →
+   **API development tools** → **Create application**. Copy the **`api_id`** and
+   **`api_hash`**.
+2. Put them in the environment and log in once to mint a session string:
+
+   ```bash
+   TELEGRAM_API_ID=1234567 TELEGRAM_API_HASH=your-api-hash npm run telegram-login
+   ```
+
+   It asks for your **phone number**, the **code** Telegram sends you, and your
+   **2FA password** if you have one — then prints a **session string**.
+3. Save that string as **`TELEGRAM_SESSION`** (locally in `.env`; on Render as a
+   secret env var, `sync: false`). It is equivalent to full access to the
+   account — never commit it or paste it anywhere public.
+
+### Running the sync
+
+```bash
+npm run telegram-sync            # writes presence to Supabase
+DRY_RUN=1 npm run telegram-sync  # scan only, report what it would write
+```
+
+For each group the account is in, the sync fetches all participants, matches
+them to `public.employees` (by Telegram id first, then `@username`) and upserts
+`chat_employee_presence` rows with `is_present = true` (conflict target
+`(chat_id, employee_id)`). Group ids are converted to the same signed Bot-API
+form the tables use (e.g. `-1002954615886`) via GramJS's `getPeerId`.
+
+**Safety by design:** the sync only ever asserts **presence** (`is_present =
+true`) for people it actually sees in a group. It never writes `is_present =
+false`, so it can only *clear* a false "missing responsible" — it can never
+create a new one. By default it writes presence only for chats already in
+`public.chats` (active, not excluded from QA); set `SYNC_ALL_CHATS=1` to cover
+every group the account is in.
+
+Only active employees are matched, so a former employee still sitting in a chat
+does not "fill" a role. Run it **before** the daily summary so the dashboard and
+the Telegram message reflect the fresh membership.
+
 ## Deploying on Render
 
-`render.yaml` defines two services:
+`render.yaml` defines three services:
 
 - **`ob-chat-checklist-dashboard`** — a Node web service (`npm start`).
+- **`ob-chat-checklist-telegram-sync`** — a cron job (`npm run telegram-sync`),
+  scheduled at `30 3 * * *` (07:30 Asia/Yerevan) so presence is refreshed
+  **before** the summary.
 - **`ob-chat-checklist-daily`** — a cron job (`npm run daily-report`), scheduled
   at `0 4 * * *` (08:00 Asia/Yerevan). Adjust the schedule as needed.
 
 Set the secret env vars (`SUPABASE_SERVICE_ROLE_KEY`, `ACCESS_PASSWORD`,
-`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `PLATFORM_URL`) in the Render
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `PLATFORM_URL`, and for the sync
+`TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION`) in the Render
 dashboard — they are marked `sync: false` and are not stored in the repo.
 
 The cron `schedule: "0 4 * * *"` is 04:00 UTC = **08:00 Asia/Yerevan**. Change

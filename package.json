@@ -9,10 +9,13 @@
   "scripts": {
     "start": "node server.js",
     "daily-report": "node scripts/daily-report.js",
+    "telegram-login": "node scripts/telegram-login.js",
+    "telegram-sync": "node scripts/telegram-sync.js",
     "test": "node --test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "telegram": "^2.26.22"
   }
 }

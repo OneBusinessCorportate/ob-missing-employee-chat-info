@@ -47,3 +47,28 @@ services:
         sync: false
       - key: PLATFORM_URL
         sync: false
+
+  # Синхронизация присутствия ответственных через пользовательский аккаунт
+  # Telegram (MTProto, вход по номеру телефона). Обновляет chat_employee_presence
+  # достоверным списком участников групп — чинит ложные «нет ответственного».
+  # Запускать ПЕРЕД дневной сводкой. TELEGRAM_SESSION получить локально через
+  # `npm run telegram-login` и вставить сюда как секрет.
+  - type: cron
+    name: ob-chat-checklist-telegram-sync
+    runtime: node
+    plan: free
+    # 07:30 Asia/Yerevan (03:30 UTC) — до дневной сводки в 08:00.
+    schedule: "30 3 * * *"
+    buildCommand: npm install
+    startCommand: npm run telegram-sync
+    envVars:
+      - key: SUPABASE_URL
+        value: https://fjsogozwseqoxgddjeig.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TELEGRAM_API_ID
+        sync: false
+      - key: TELEGRAM_API_HASH
+        sync: false
+      - key: TELEGRAM_SESSION
+        sync: false
