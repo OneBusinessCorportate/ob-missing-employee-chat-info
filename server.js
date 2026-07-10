@@ -22,6 +22,12 @@ import {
   clearCookie,
   createRateLimiter,
 } from "./lib/auth.js";
+import {
+  beginLogin,
+  confirmCode,
+  confirmPassword,
+  loginEnabled,
+} from "./lib/telegramLogin.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -86,6 +92,60 @@ app.get("/api/problem-chats", requireAuth, apiLimiter, async (_req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+
+// --- Одноразовый вход в Telegram по номеру (для Render) ------------------
+// Пошаговый вход через браузер: номер → код → 2FA. Подключение MTProto живёт
+// в памяти этого всегда работающего процесса между запросами, поэтому не
+// «отваливается на полпути», как интерактивный Shell/крон. Доступно только
+// вошедшим и только при TELEGRAM_LOGIN_ENABLED=1; выключайте после настройки.
+function requireLoginFeature(_req, res, next) {
+  if (!loginEnabled()) {
+    return res
+      .status(404)
+      .json({ ok: false, error: "Вход отключён. Задайте TELEGRAM_LOGIN_ENABLED=1." });
+  }
+  next();
+}
+
+const tgLoginLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
+
+app.get("/telegram-login", requireAuth, requireLoginFeature, (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "telegram-login.html"));
+});
+
+function tgHandler(fn) {
+  return async (req, res) => {
+    try {
+      const out = await fn(req.body || {});
+      res.set("Cache-Control", "no-store");
+      res.json({ ok: true, ...out });
+    } catch (err) {
+      res.status(400).json({ ok: false, error: err.message || "Ошибка входа." });
+    }
+  };
+}
+
+app.post(
+  "/telegram-login/start",
+  requireAuth,
+  requireLoginFeature,
+  tgLoginLimiter,
+  tgHandler((b) => beginLogin(b.phone)),
+);
+app.post(
+  "/telegram-login/code",
+  requireAuth,
+  requireLoginFeature,
+  tgLoginLimiter,
+  tgHandler((b) => confirmCode(b.code)),
+);
+app.post(
+  "/telegram-login/password",
+  requireAuth,
+  requireLoginFeature,
+  tgLoginLimiter,
+  tgHandler((b) => confirmPassword(b.password)),
+);
 
 // Статика (дашборд) — тоже под защитой входа.
 app.use(requireAuth, express.static(path.join(__dirname, "public")));

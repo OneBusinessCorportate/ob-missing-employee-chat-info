@@ -204,6 +204,26 @@ the same Supabase client, and deploys as another Render cron job.
    secret env var, `sync: false`). It is equivalent to full access to the
    account — never commit it or paste it anywhere public.
 
+#### Logging in on Render (no local machine needed)
+
+`npm run telegram-login` is **interactive** — it waits for the code you type.
+So it will **not** work as a cron job (nothing types the code, it just hangs and
+dies "halfway"). If you don't want to run it locally, use the built-in
+**browser login** instead — it runs on the always-on web service, so the Telegram
+connection stays alive between steps and can't drop mid-flow:
+
+1. Deploy this branch, and on the **dashboard** web service set env vars
+   `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, and `TELEGRAM_LOGIN_ENABLED=1`
+   (and make sure `ACCESS_PASSWORD` is set — the page is behind the login gate).
+2. Open **`/telegram-login`** on the dashboard URL, enter phone → code → 2FA.
+   The page shows the **session string** at the end.
+3. Copy it into **`TELEGRAM_SESSION`** on the `ob-chat-checklist-telegram-sync`
+   cron job, then **remove `TELEGRAM_LOGIN_ENABLED`** so the page is disabled
+   again.
+
+The page is off unless `TELEGRAM_LOGIN_ENABLED=1`, requires dashboard login, and
+is rate-limited. Turn it off once you have the session string.
+
 ### Running the sync
 
 ```bash
