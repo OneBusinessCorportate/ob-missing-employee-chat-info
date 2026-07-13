@@ -71,14 +71,19 @@ row per client-agreement, also exposed as `public.v_mqa_active` for
 14 без бухгалтера
 1 без главного бухгалтера
 5 без менеджера
+29 нет HVHH в Agreements
+15 нет чатов у активных месячных клиентов
 
 Чтобы увидеть больше информации, перейдите по ссылке:
 https://ob-missing-employee-chat-info.onrender.com/
 
-dop info:
+Доп. информация:
 Нет HVHH в Agreements: 29
 Нет чатов у активных месячных клиентов: 15
 ```
+
+The two Agreements metrics appear both inline in the "из которых" list and,
+for readability, again under the `Доп. информация:` (dop info) footer.
 
 Only **active** clients (`status='Active'`) are considered — these are the active
 monthly service clients. The `dop info:` block reports two counts:

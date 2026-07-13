@@ -34,15 +34,33 @@ test("есть проблемы — новый формат «У нас есть
   assert.match(msg, /https:\/\/dash\.example/);
 });
 
-// --- Новый блок: «dop info» (две дополнительные метрики) ---
-test("dop info: заголовок и две метрики (HVHH и чаты)", () => {
+test("доп. метрики добавляются в основной список при наличии clientCounts", () => {
+  const msg = buildMessage(
+    { total_chats: 700, total_problems: 18, missing_accountant: 14, missing_head_accountant: 1, missing_manager: 5 },
+    "https://d",
+    { no_hvhh: 29, no_chat: 15 },
+  );
+  assert.match(msg, /5 без менеджера\n29 нет HVHH в Agreements\n15 нет чатов у активных месячных клиентов/);
+});
+
+test("без clientCounts основной список не содержит доп. метрик", () => {
+  const msg = buildMessage(
+    { total_chats: 700, total_problems: 18, missing_accountant: 14, missing_head_accountant: 1, missing_manager: 5 },
+    "https://d",
+  );
+  assert.doesNotMatch(msg, /нет HVHH в Agreements/);
+  assert.doesNotMatch(msg, /нет чатов у активных/);
+});
+
+// --- Новый блок: «Доп. информация» (две дополнительные метрики) ---
+test("Доп. информация: заголовок и две метрики (HVHH и чаты)", () => {
   const msg = buildClientChecksBlock({ counts: { no_hvhh: 29, no_chat: 15 } });
-  assert.match(msg, /dop info:/);
+  assert.match(msg, /Доп\. информация:/);
   assert.match(msg, /Нет HVHH в Agreements: 29/);
   assert.match(msg, /Нет чатов у активных месячных клиентов: 15/);
 });
 
-test("dop info: компактный — без «Чаты без ответственных» и без списков клиентов", () => {
+test("Доп. информация: компактный — без «Чаты без ответственных» и без списков клиентов", () => {
   const msg = buildClientChecksBlock({
     counts: { no_responsible: 682, no_hvhh: 29, no_chat: 15, needs_review: 0 },
   });

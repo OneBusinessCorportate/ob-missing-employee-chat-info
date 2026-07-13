@@ -31,7 +31,7 @@ function log(level, event, fields = {}) {
   else console.log(line);
 }
 
-export function buildMessage(counts, platformUrl = PLATFORM_URL) {
+export function buildMessage(counts, platformUrl = PLATFORM_URL, clientCounts = null) {
   // Путь «0 проблем» — позитивное сообщение, а не пустой отчёт.
   if (counts.total_problems === 0) {
     // Отдельный случай: реальных чатов вообще нет (например, есть только
@@ -52,10 +52,19 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL) {
     `${counts.missing_accountant} без бухгалтера`,
     `${counts.missing_head_accountant} без главного бухгалтера`,
     `${counts.missing_manager} без менеджера`,
+  ];
+  // Две дополнительные метрики из Agreements (mqa_chats) в том же списке.
+  if (clientCounts) {
+    lines.push(
+      `${clientCounts.no_hvhh} нет HVHH в Agreements`,
+      `${clientCounts.no_chat} нет чатов у активных месячных клиентов`,
+    );
+  }
+  lines.push(
     "",
     "Чтобы увидеть больше информации, перейдите по ссылке:",
     platformUrl || "(ссылка на платформу не настроена — задайте PLATFORM_URL)",
-  ];
+  );
   return lines.join("\n");
 }
 
@@ -66,7 +75,7 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL) {
 export function buildClientChecksBlock(checks) {
   const c = checks.counts;
   return [
-    "dop info:",
+    "Доп. информация:",
     `Нет HVHH в Agreements: ${c.no_hvhh}`,
     `Нет чатов у активных месячных клиентов: ${c.no_chat}`,
   ].join("\n");
@@ -135,18 +144,20 @@ function markSentToday() {
 
 async function main() {
   const { counts } = await getProblemChats();
-  let message = buildMessage(counts);
   log("info", "report_built", { ...counts });
 
-  // Новый блок «Ежедневная проверка клиентов/чатов» по данным Agreements.
-  // Считаем и добавляем его к сообщению. Если источник недоступен — логируем и
-  // отправляем остальной отчёт без этого блока (не роняем всю сводку).
+  // Доп. метрики по данным Agreements (mqa_chats): две строки в основном списке
+  // + отдельный блок «Доп. информация». Если источник недоступен — логируем и
+  // отправляем основной отчёт без доп. метрик (не роняем всю сводку).
+  let message;
   try {
     const checks = await getClientChecks();
+    message = buildMessage(counts, PLATFORM_URL, checks.counts);
     message += "\n\n" + buildClientChecksBlock(checks);
     log("info", "client_checks_built", { ...checks.counts });
   } catch (err) {
     log("error", "client_checks_failed", { error: err.message });
+    message = buildMessage(counts);
   }
 
   console.log("---- Daily summary ----\n" + message + "\n-----------------------");
