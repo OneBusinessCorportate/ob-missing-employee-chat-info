@@ -55,6 +55,33 @@ missing the message signal).
 > The older `public.client_telegram_chats` table (participants jsonb) held only
 > QA/test rows and is **not** used anymore.
 
+## Daily client/chat check block (Agreements)
+
+The daily Telegram summary appends a second, **additive** block —
+`📌 Ежедневная проверка клиентов/чатов` — built from the Agreements /
+kk-сопровождение table **`public.mqa_chats`** (one row per client-agreement,
+also exposed as `public.v_mqa_active` for `status='Active'`). It reads only real
+data, matches nothing across tables (everything it needs is in one row), and
+never writes. Logic lives in `lib/clientChecks.js`; the message is rendered by
+`buildClientChecksBlock` in `scripts/daily-report.js`.
+
+Only **active** clients (`status='Active'`) are considered — these are the active
+monthly service clients. Three counts are reported:
+
+| Line                                       | Meaning (per active client)                                            |
+| ------------------------------------------ | --------------------------------------------------------------------- |
+| Чаты без ответственных                     | `accountant` **or** `manager` is empty (who is missing is shown)      |
+| Нет HVHH в Agreements                      | `hvhh` is empty                                                        |
+| Нет чатов у активных месячных клиентов      | `chat_link` is empty (no Telegram chat)                               |
+
+Under each line the message lists up to the first **10** clients, then `…и ещё N`,
+with the full list left on the dashboard (`PLATFORM_URL`). A client whose row has
+no usable identifier at all (no name / agreement no. / HVHH / chat) is routed to a
+**Needs review** counter instead of being counted, so numbers are never guessed.
+
+The rest of the report — the SLA-free responsibles checklist, filters and AI
+analysis — is **unchanged**; this block is purely appended.
+
 ## What counts as a "problem"
 
 A chat is problematic when it is missing **at least one** of these roles:

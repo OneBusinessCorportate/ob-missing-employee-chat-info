@@ -16,6 +16,7 @@
 
 import fs from "node:fs";
 import { getProblemChats } from "../lib/problemChats.js";
+import { getClientChecks } from "../lib/clientChecks.js";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
@@ -64,6 +65,58 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL) {
     "Чтобы увидеть больше информации, перейдите по ссылке:",
     platformUrl || "(ссылка на платформу не настроена — задайте PLATFORM_URL)",
   );
+  return lines.join("\n");
+}
+
+// В коротких списках показываем максимум столько первых проблемных клиентов —
+// полный список остаётся на дашборде. Держим сообщение компактным для Telegram.
+const CLIENT_CHECK_PREVIEW = 10;
+
+// Отдельный НОВЫЙ блок «Ежедневная проверка клиентов/чатов» по данным Agreements
+// (mqa_chats). Не трогает остальную логику отчёта — просто добавляется к нему.
+// Под каждым пунктом — до CLIENT_CHECK_PREVIEW первых клиентов, дальше «…и ещё N»;
+// полный список — по ссылке на дашборд.
+export function buildClientChecksBlock(checks, platformUrl = PLATFORM_URL) {
+  const c = checks.counts;
+  const lines = [
+    "📌 Ежедневная проверка клиентов/чатов",
+    "",
+    `Чаты без ответственных: ${c.no_responsible}`,
+    `Нет HVHH в Agreements: ${c.no_hvhh}`,
+    `Нет чатов у активных месячных клиентов: ${c.no_chat}`,
+  ];
+  if (c.needs_review) {
+    lines.push(`Needs review (не удалось сопоставить): ${c.needs_review}`);
+  }
+
+  const section = (title, items, fmt) => {
+    if (!items || !items.length) return;
+    lines.push("", `${title}:`);
+    for (const it of items.slice(0, CLIENT_CHECK_PREVIEW)) {
+      lines.push(`• ${fmt(it)}`);
+    }
+    if (items.length > CLIENT_CHECK_PREVIEW) {
+      lines.push(`…и ещё ${items.length - CLIENT_CHECK_PREVIEW}`);
+    }
+  };
+
+  const whoMissing = (m) =>
+    m === "both" ? "оба" : m === "accountant" ? "бухгалтер" : "менеджер";
+  const hvhhSuffix = (hvhh) => (hvhh ? `, HVHH ${hvhh}` : "");
+
+  section("Чаты без ответственных", checks.noResponsible, (it) =>
+    `${it.client}${hvhhSuffix(it.hvhh)} — нет: ${whoMissing(it.missing)}`,
+  );
+  section("Нет HVHH в Agreements", checks.noHvhh, (it) =>
+    `${it.client}${it.agr_no ? ` (${it.agr_no})` : ""}`,
+  );
+  section("Нет чатов у активных месячных клиентов", checks.noChat, (it) =>
+    `${it.client}${hvhhSuffix(it.hvhh)}`,
+  );
+
+  if (platformUrl) {
+    lines.push("", "Полный список — на дашборде:", platformUrl);
+  }
   return lines.join("\n");
 }
 
@@ -130,8 +183,20 @@ function markSentToday() {
 
 async function main() {
   const { counts } = await getProblemChats();
-  const message = buildMessage(counts);
+  let message = buildMessage(counts);
   log("info", "report_built", { ...counts });
+
+  // Новый блок «Ежедневная проверка клиентов/чатов» по данным Agreements.
+  // Считаем и добавляем его к сообщению. Если источник недоступен — логируем и
+  // отправляем остальной отчёт без этого блока (не роняем всю сводку).
+  try {
+    const checks = await getClientChecks();
+    message += "\n\n" + buildClientChecksBlock(checks);
+    log("info", "client_checks_built", { ...checks.counts });
+  } catch (err) {
+    log("error", "client_checks_failed", { error: err.message });
+  }
+
   console.log("---- Daily summary ----\n" + message + "\n-----------------------");
 
   if (DRY_RUN) {
