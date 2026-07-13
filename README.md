@@ -57,30 +57,47 @@ missing the message signal).
 
 ## Daily client/chat check block (Agreements)
 
-The daily Telegram summary appends a second, **additive** block —
-`📌 Ежедневная проверка клиентов/чатов` — built from the Agreements /
-kk-сопровождение table **`public.mqa_chats`** (one row per client-agreement,
-also exposed as `public.v_mqa_active` for `status='Active'`). It reads only real
-data, matches nothing across tables (everything it needs is in one row), and
-never writes. Logic lives in `lib/clientChecks.js`; the message is rendered by
-`buildClientChecksBlock` in `scripts/daily-report.js`.
+The daily Telegram summary appends a compact, **additive** `dop info:` block,
+built from the Agreements / kk-сопровождение table **`public.mqa_chats`** (one
+row per client-agreement, also exposed as `public.v_mqa_active` for
+`status='Active'`). It reads only real data, matches nothing across tables
+(everything it needs is in one row), and never writes. Logic lives in
+`lib/clientChecks.js`; the message is rendered by `buildClientChecksBlock` in
+`scripts/daily-report.js`. The full message looks like:
+
+```text
+У нас есть 18 проблемных чатов, из которых:
+
+14 без бухгалтера
+1 без главного бухгалтера
+5 без менеджера
+
+Чтобы увидеть больше информации, перейдите по ссылке:
+https://ob-missing-employee-chat-info.onrender.com/
+
+dop info:
+Нет HVHH в Agreements: 29
+Нет чатов у активных месячных клиентов: 15
+```
 
 Only **active** clients (`status='Active'`) are considered — these are the active
-monthly service clients. Three counts are reported:
+monthly service clients. The `dop info:` block reports two counts:
 
 | Line                                       | Meaning (per active client)                                            |
 | ------------------------------------------ | --------------------------------------------------------------------- |
-| Чаты без ответственных                     | `accountant` **or** `manager` is empty (who is missing is shown)      |
 | Нет HVHH в Agreements                      | `hvhh` is empty                                                        |
 | Нет чатов у активных месячных клиентов      | `chat_link` is empty (no Telegram chat)                               |
 
-Under each line the message lists up to the first **10** clients, then `…и ещё N`,
-with the full list left on the dashboard (`PLATFORM_URL`). A client whose row has
-no usable identifier at all (no name / agreement no. / HVHH / chat) is routed to a
-**Needs review** counter instead of being counted, so numbers are never guessed.
+The full per-client detail is left on the dashboard (`PLATFORM_URL`, linked once
+above). `computeClientChecks` also computes a "chats without a responsible"
+(`accountant`/`manager` empty) list and a **Needs review** bucket for rows with no
+usable identifier — these are kept out of the compact message (they are available
+for the dashboard / logs), since "chats without a responsible" is already covered
+by the main report above.
 
-The rest of the report — the SLA-free responsibles checklist, filters and AI
-analysis — is **unchanged**; this block is purely appended.
+The rest of the report — the responsibles checklist, SLA, filters and AI
+analysis — is **unchanged** apart from the reworded summary line; the `dop info:`
+block is purely appended.
 
 ## What counts as a "problem"
 
