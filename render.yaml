@@ -13,6 +13,9 @@ services:
     name: ob-chat-checklist-dashboard
     runtime: node
     plan: free
+    # Автодеплой при пуше в подключённую ветку — чтобы крон не запускал старый
+    # билд (иначе новые метрики в сводке молча не появятся).
+    autoDeploy: true
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
@@ -32,6 +35,7 @@ services:
     name: ob-chat-checklist-daily
     runtime: node
     plan: free
+    autoDeploy: true
     # 08:00 Asia/Yerevan is 04:00 UTC. Adjust to taste.
     schedule: "0 4 * * *"
     buildCommand: npm install
@@ -57,6 +61,7 @@ services:
     name: ob-chat-checklist-telegram-sync
     runtime: node
     plan: free
+    autoDeploy: true
     # 07:30 Asia/Yerevan (03:30 UTC) — до дневной сводки в 08:00.
     schedule: "30 3 * * *"
     buildCommand: npm install
