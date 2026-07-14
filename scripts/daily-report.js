@@ -68,19 +68,6 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL, clientCounts = 
   return lines.join("\n");
 }
 
-// Отдельный НОВЫЙ блок «dop info» по данным Agreements (mqa_chats): две
-// дополнительные метрики к основному отчёту. Держим его компактным для Telegram —
-// без списков клиентов; полная детализация остаётся на дашборде (ссылка выше в
-// основном сообщении, поэтому здесь ссылку не дублируем).
-export function buildClientChecksBlock(checks) {
-  const c = checks.counts;
-  return [
-    "Доп. информация:",
-    `Нет HVHH в Agreements: ${c.no_hvhh}`,
-    `Нет чатов у активных месячных клиентов: ${c.no_chat}`,
-  ].join("\n");
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Отправка с повторами и экспоненциальной задержкой. Повторяем при сетевых
@@ -147,7 +134,7 @@ async function main() {
   log("info", "report_built", { ...counts });
 
   // Доп. метрики по данным Agreements (mqa_chats) — обязательная часть ПОЛНОЙ
-  // сводки: две строки в основном списке + блок «Доп. информация».
+  // сводки: две строки в основном списке (HVHH и чаты активных клиентов).
   //
   // Короткого/усечённого варианта больше нет. Раньше при сбое источника мы слали
   // сокращённый отчёт без этих цифр, но он выглядел как старый короткий формат и
@@ -156,10 +143,7 @@ async function main() {
   // пробрасывается и крон падает, чтобы проблему было видно, а не замаскировано
   // «старым» форматом. Отправляем только полный, новый формат — либо ничего.
   const checks = await getClientChecks();
-  const message =
-    buildMessage(counts, PLATFORM_URL, checks.counts) +
-    "\n\n" +
-    buildClientChecksBlock(checks);
+  const message = buildMessage(counts, PLATFORM_URL, checks.counts);
   log("info", "client_checks_built", { ...checks.counts });
 
   console.log("---- Daily summary ----\n" + message + "\n-----------------------");

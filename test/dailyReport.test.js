@@ -1,7 +1,7 @@
 // Тесты формирования текста ежедневной сводки, включая позитивные пути.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildMessage, buildClientChecksBlock } from "../scripts/daily-report.js";
+import { buildMessage } from "../scripts/daily-report.js";
 
 test("0 проблем при наличии чатов — позитивное сообщение со ссылкой", () => {
   const msg = buildMessage({ total_problems: 0, total_chats: 700 }, "https://example.org");
@@ -52,19 +52,13 @@ test("без clientCounts основной список не содержит д
   assert.doesNotMatch(msg, /нет чатов у активных/);
 });
 
-// --- Новый блок: «Доп. информация» (две дополнительные метрики) ---
-test("Доп. информация: заголовок и две метрики (HVHH и чаты)", () => {
-  const msg = buildClientChecksBlock({ counts: { no_hvhh: 29, no_chat: 15 } });
-  assert.match(msg, /Доп\. информация:/);
-  assert.match(msg, /Нет HVHH в Agreements: 29/);
-  assert.match(msg, /Нет чатов у активных месячных клиентов: 15/);
-});
-
-test("Доп. информация: компактный — без «Чаты без ответственных» и без списков клиентов", () => {
-  const msg = buildClientChecksBlock({
-    counts: { no_responsible: 682, no_hvhh: 29, no_chat: 15, needs_review: 0 },
-  });
-  assert.doesNotMatch(msg, /Чаты без ответственных/);
-  assert.doesNotMatch(msg, /•/);
-  assert.doesNotMatch(msg, /682/);
+// Полное сообщение больше не содержит отдельного блока «Доп. информация» —
+// две доп. метрики идут только строками в основном списке.
+test("сообщение не содержит отдельного блока «Доп. информация»", () => {
+  const msg = buildMessage(
+    { total_chats: 700, total_problems: 20, missing_accountant: 15, missing_head_accountant: 2, missing_manager: 6 },
+    "https://ob-missing-employee-chat-info.onrender.com/",
+    { no_hvhh: 28, no_chat: 15 },
+  );
+  assert.doesNotMatch(msg, /Доп\. информация:/);
 });
