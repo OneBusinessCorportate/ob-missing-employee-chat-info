@@ -146,19 +146,21 @@ async function main() {
   const { counts } = await getProblemChats();
   log("info", "report_built", { ...counts });
 
-  // Доп. метрики по данным Agreements (mqa_chats): две строки в основном списке
-  // + отдельный блок «Доп. информация». Если источник недоступен — логируем и
-  // отправляем основной отчёт без доп. метрик (не роняем всю сводку).
-  let message;
-  try {
-    const checks = await getClientChecks();
-    message = buildMessage(counts, PLATFORM_URL, checks.counts);
-    message += "\n\n" + buildClientChecksBlock(checks);
-    log("info", "client_checks_built", { ...checks.counts });
-  } catch (err) {
-    log("error", "client_checks_failed", { error: err.message });
-    message = buildMessage(counts);
-  }
+  // Доп. метрики по данным Agreements (mqa_chats) — обязательная часть ПОЛНОЙ
+  // сводки: две строки в основном списке + блок «Доп. информация».
+  //
+  // Короткого/усечённого варианта больше нет. Раньше при сбое источника мы слали
+  // сокращённый отчёт без этих цифр, но он выглядел как старый короткий формат и
+  // вводил получателей в заблуждение. Теперь, если источник недоступен (уже после
+  // повторов внутри getClientChecks), сводка НЕ отправляется — ошибка
+  // пробрасывается и крон падает, чтобы проблему было видно, а не замаскировано
+  // «старым» форматом. Отправляем только полный, новый формат — либо ничего.
+  const checks = await getClientChecks();
+  const message =
+    buildMessage(counts, PLATFORM_URL, checks.counts) +
+    "\n\n" +
+    buildClientChecksBlock(checks);
+  log("info", "client_checks_built", { ...checks.counts });
 
   console.log("---- Daily summary ----\n" + message + "\n-----------------------");
 
