@@ -17,6 +17,11 @@
 import fs from "node:fs";
 import { getProblemChats } from "../lib/problemChats.js";
 import { getClientChecks } from "../lib/clientChecks.js";
+import {
+  buildDailyTicketData,
+  buildTicketReport,
+  yesterdayRange,
+} from "../lib/ticketReview.js";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
@@ -73,15 +78,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Отправка с повторами и экспоненциальной задержкой. Повторяем при сетевых
 // ошибках, 429 (учитываем retry_after) и 5xx. При 4xx (кроме 429) не повторяем —
 // это ошибка запроса, которую повтор не исправит.
-async function sendTelegram(text, { attempts = 4, baseDelayMs = 1000 } = {}) {
+async function sendTelegram(text, { attempts = 4, baseDelayMs = 1000, parseMode = null } = {}) {
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   let lastErr;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
+      const payload = { chat_id: TELEGRAM_CHAT_ID, text, disable_web_page_preview: true };
+      if (parseMode) payload.parse_mode = parseMode;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, disable_web_page_preview: true }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
       if (res.ok && body.ok) {
@@ -107,23 +114,26 @@ async function sendTelegram(text, { attempts = 4, baseDelayMs = 1000 } = {}) {
   throw lastErr;
 }
 
-// --- Идемпотентность: не слать сводку дважды за один день ------------------
-function todayKey() {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+// --- Идемпотентность: не слать сводку дважды за одну отчётную дату ----------
+// Ключ = отчётная дата = ВЧЕРАШНИЙ календарный день в Asia/Yerevan (тот же, что в
+// сводке и в блокировке), а не UTC-«сегодня». Так один запуск = один отчёт за
+// конкретный день, независимо от часа/зоны запуска крона.
+function reportDateKey(now = new Date()) {
+  return yesterdayRange(now).dateKey; // YYYY-MM-DD (Asia/Yerevan, вчера)
 }
-function alreadySentToday() {
+function alreadySent(key) {
   if (!STATE_FILE) return false;
   try {
     const saved = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-    return saved.last_sent_date === todayKey();
+    return saved.last_sent_date === key;
   } catch {
     return false;
   }
 }
-function markSentToday() {
+function markSent(key) {
   if (!STATE_FILE) return;
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ last_sent_date: todayKey() }));
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ last_sent_date: key }));
   } catch (err) {
     log("warn", "state_write_failed", { error: err.message });
   }
@@ -148,13 +158,27 @@ async function main() {
 
   console.log("---- Daily summary ----\n" + message + "\n-----------------------");
 
+  // Пер-бухгалтерский отчёт по вчерашним тикетам (та же выборка/подсчёт, что и в
+  // блокировке — никакой отдельной логики). Может быть несколько сообщений, если
+  // отчёт длиннее лимита Telegram (режем по границам, не рвём строку тикета).
+  const { dateLabel } = yesterdayRange();
+  const perAccountant = await buildDailyTicketData();
+  const ticketMessages = buildTicketReport(perAccountant, dateLabel, PLATFORM_URL);
+  log("info", "ticket_report_built", {
+    accountants: perAccountant.length,
+    messages: ticketMessages.length,
+    date: dateLabel,
+  });
+  console.log("---- Ticket report ----\n" + ticketMessages.join("\n\n———\n\n") + "\n-----------------------");
+
   if (DRY_RUN) {
     log("info", "dry_run_skip_send");
     return;
   }
 
-  if (alreadySentToday()) {
-    log("info", "idempotent_skip", { date: todayKey() });
+  const key = reportDateKey();
+  if (alreadySent(key)) {
+    log("info", "idempotent_skip", { date: key });
     return;
   }
 
@@ -164,9 +188,14 @@ async function main() {
     );
   }
 
+  // Сначала прежняя сводка «нет ответственных» (обычный текст), затем отчёт по
+  // тикетам (HTML — жирные заголовки бухгалтеров, экранированный контент).
   await sendTelegram(message);
-  markSentToday();
-  log("info", "report_done");
+  for (const chunk of ticketMessages) {
+    await sendTelegram(chunk, { parseMode: "HTML" });
+  }
+  markSent(key);
+  log("info", "report_done", { ticket_messages: ticketMessages.length });
 }
 
 // Запускаем main только при прямом вызове файла — чтобы buildMessage можно

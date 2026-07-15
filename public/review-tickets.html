@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Обработка вчерашних тикетов</title>
+    <style>
+      :root {
+        --bg: #f5f6f8; --card: #ffffff; --text: #1a1d21; --muted: #6b7280;
+        --border: #e5e7eb; --accent: #2563eb; --ok: #059669; --danger: #b91c1c;
+        --crit: #dc2626; --med: #d97706; --light: #059669;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115; --card: #181b20; --text: #e7e9ec; --muted: #9aa0aa;
+          --border: #2a2e35; --accent: #60a5fa; --ok: #34d399; --danger: #f87171;
+          --crit: #f87171; --med: #fbbf24; --light: #34d399;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; }
+      header.top { margin-bottom: 14px; }
+      h1 { font-size: 1.15rem; margin: 0 0 4px; }
+      .lead { color: var(--muted); font-size: 0.9rem; margin: 0 0 12px; }
+      .progress {
+        position: sticky; top: 0; z-index: 5; background: var(--card);
+        border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+        margin-bottom: 14px; font-weight: 600;
+      }
+      .bar { height: 8px; border-radius: 6px; background: var(--border); margin-top: 8px; overflow: hidden; }
+      .bar > span { display: block; height: 100%; background: var(--ok); width: 0%; transition: width .3s; }
+      .card {
+        background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+        padding: 14px; margin-bottom: 12px;
+      }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+      .sev { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; }
+      .sev.critical { background: var(--crit); }
+      .sev.medium { background: var(--med); }
+      .sev.light { background: var(--light); }
+      .meta { font-size: 0.78rem; color: var(--muted); }
+      .title { font-weight: 600; margin: 4px 0; }
+      .desc { font-size: 0.9rem; white-space: pre-wrap; }
+      .evidence {
+        margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--border);
+        background: var(--bg); border-radius: 6px; font-size: 0.85rem; color: var(--muted);
+        white-space: pre-wrap;
+      }
+      .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+      button {
+        flex: 1 1 auto; min-width: 130px; padding: 11px; font-size: 0.95rem; font-weight: 600;
+        border-radius: 10px; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--text);
+      }
+      button.accept { background: var(--ok); color: #fff; border-color: transparent; }
+      button.appeal { background: transparent; color: var(--accent); border-color: var(--accent); }
+      button:disabled { opacity: .55; cursor: not-allowed; }
+      .appeal-box { margin-top: 10px; display: none; }
+      .appeal-box.show { display: block; }
+      textarea {
+        width: 100%; min-height: 74px; padding: 10px; border-radius: 10px;
+        border: 1px solid var(--border); background: var(--bg); color: var(--text);
+        font: inherit; font-size: 0.9rem; resize: vertical;
+      }
+      .err { color: var(--danger); font-size: 0.82rem; margin-top: 6px; min-height: 1em; }
+      .done {
+        text-align: center; padding: 30px 16px; background: var(--card);
+        border: 1px solid var(--border); border-radius: 14px;
+      }
+      .done h2 { color: var(--ok); }
+      .muted { color: var(--muted); }
+      .spinner { text-align: center; color: var(--muted); padding: 30px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <h1>Обработка вчерашних тикетов</h1>
+        <p class="lead">
+          Перед началом работы необходимо обработать все тикеты за вчерашний день.
+          По каждому выберите <b>Принять</b> или <b>Подать апелляцию</b> с комментарием.
+        </p>
+      </header>
+      <div class="progress" id="progress" aria-live="polite">Загрузка…
+        <div class="bar"><span id="bar"></span></div>
+      </div>
+      <div id="list"><div class="spinner">Загрузка тикетов…</div></div>
+    </div>
+
+    <script>
+      const listEl = document.getElementById("list");
+      const progressEl = document.getElementById("progress");
+      const barEl = document.getElementById("bar");
+
+      const esc = (s) =>
+        (s ?? "").toString()
+          .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+
+      const SEV_LABEL = { critical: "Критично", medium: "Средне", light: "Лёгкое" };
+
+      function fmtTime(iso) {
+        if (!iso) return "";
+        try {
+          return new Intl.DateTimeFormat("ru-RU", {
+            timeZone: "Asia/Yerevan", day: "2-digit", month: "2-digit",
+            hour: "2-digit", minute: "2-digit",
+          }).format(new Date(iso));
+        } catch { return iso; }
+      }
+
+      function setProgress(p) {
+        const answered = p.answered ?? 0;
+        const total = p.total ?? 0;
+        progressEl.firstChild.textContent = `Обработано ${answered} из ${total} тикетов`;
+        const pct = total ? Math.round((answered / total) * 100) : 100;
+        barEl.style.width = pct + "%";
+      }
+
+      function ticketCard(t) {
+        const time = fmtTime(t.detected_at);
+        const chatId = t.chat_id ? ` · ID ${esc(t.chat_id)}` : "";
+        const chat = t.chat_name || t.client_name || "Чат без названия";
+        return `
+        <div class="card" data-id="${esc(t.problem_id)}">
+          <div class="row">
+            <span class="sev ${esc(t.severity)}">${SEV_LABEL[t.severity] || "—"}</span>
+            <span class="meta">${esc(chat)}${chatId}</span>
+            <span class="meta" style="margin-left:auto">${esc(time)}</span>
+          </div>
+          ${t.problem_title ? `<div class="title">${esc(t.problem_title)}</div>` : ""}
+          ${t.problem_description ? `<div class="desc">${esc(t.problem_description)}</div>` : ""}
+          ${t.evidence ? `<div class="evidence">${esc(t.evidence)}</div>` : ""}
+          <div class="meta" style="margin-top:8px">Ответственный: ${esc(t.accountant_name || "—")} · Статус: ${esc(t.status || "—")}</div>
+          <div class="actions">
+            <button class="accept" type="button">Принять</button>
+            <button class="appeal" type="button">Подать апелляцию</button>
+          </div>
+          <div class="appeal-box">
+            <textarea placeholder="Обязательно: объясните, почему вы не согласны с тикетом" maxlength="2000"></textarea>
+            <div class="actions">
+              <button class="appeal-send" type="button">Отправить апелляцию</button>
+              <button class="appeal-cancel" type="button">Отмена</button>
+            </div>
+          </div>
+          <div class="err"></div>
+        </div>`;
+      }
+
+      async function post(url, body) {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        return { ok: res.ok && data.ok, data };
+      }
+
+      function wireCard(card, t) {
+        const errEl = card.querySelector(".err");
+        const box = card.querySelector(".appeal-box");
+        const setBusy = (b) =>
+          card.querySelectorAll("button").forEach((el) => (el.disabled = b));
+
+        card.querySelector(".accept").addEventListener("click", async () => {
+          errEl.textContent = "";
+          setBusy(true);
+          const { ok, data } = await post("/api/review/accept", { problem_id: t.problem_id });
+          if (ok) { finishCard(card, data.progress); }
+          else { errEl.textContent = (data && data.error) || "Ошибка."; setBusy(false); }
+        });
+
+        card.querySelector(".appeal").addEventListener("click", () => {
+          box.classList.add("show");
+          box.querySelector("textarea").focus();
+        });
+        card.querySelector(".appeal-cancel").addEventListener("click", () => {
+          box.classList.remove("show");
+          errEl.textContent = "";
+        });
+        card.querySelector(".appeal-send").addEventListener("click", async () => {
+          const comment = box.querySelector("textarea").value.trim();
+          errEl.textContent = "";
+          if (!comment) { errEl.textContent = "Комментарий обязателен."; return; }
+          setBusy(true);
+          const { ok, data } = await post("/api/review/appeal", { problem_id: t.problem_id, comment });
+          if (ok) { finishCard(card, data.progress); }
+          else { errEl.textContent = (data && data.error) || "Ошибка."; setBusy(false); }
+        });
+      }
+
+      function finishCard(card, progress) {
+        if (progress) setProgress(progress);
+        card.style.transition = "opacity .25s";
+        card.style.opacity = "0";
+        setTimeout(() => {
+          card.remove();
+          if (progress && progress.complete) {
+            window.location.href = "/";
+          } else if (!listEl.querySelector(".card")) {
+            // Прогресс говорит, что не всё — перезагрузим список (на случай гонки).
+            load();
+          }
+        }, 260);
+      }
+
+      async function load() {
+        try {
+          const res = await fetch("/api/review/tickets", { headers: { Accept: "application/json" } });
+          if (res.status === 401) { window.location.href = "/login"; return; }
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || "Ошибка загрузки");
+          setProgress(data.progress);
+          if (data.progress.complete || !data.tickets.length) {
+            listEl.innerHTML = `
+              <div class="done">
+                <h2>Все тикеты обработаны</h2>
+                <p class="muted">Открываем платформу…</p>
+              </div>`;
+            setTimeout(() => (window.location.href = "/"), 900);
+            return;
+          }
+          listEl.innerHTML = data.tickets.map(ticketCard).join("");
+          data.tickets.forEach((t) => {
+            const card = listEl.querySelector(`.card[data-id="${CSS.escape(t.problem_id)}"]`);
+            if (card) wireCard(card, t);
+          });
+        } catch (err) {
+          listEl.innerHTML = `<div class="done"><p class="muted">Не удалось загрузить тикеты: ${esc(err.message)}</p></div>`;
+        }
+      }
+
+      load();
+    </script>
+  </body>
+</html>

@@ -335,6 +335,64 @@ the cron string in `render.yaml` to move the send time.
   `kk_problem_ratings`. Enabling RLS **without** policies would block all access,
   so this is surfaced for a human to decide — it is **not** auto-fixed here.
 
+## Mandatory "answer yesterday's tickets first" gate
+
+Every ordinary accountant must review **all of their tickets from yesterday**
+before they can use the rest of the platform. A ticket is a `public.kk_problems`
+row from the manual quality review (`source ∈ {margarita_review, sona_review}`;
+AI detections are **not** tickets here). For each yesterday ticket the accountant
+must pick exactly one action:
+
+- **Принять** — confirm the ticket is valid → writes `kk_problem_acknowledgements`.
+- **Подать апелляцию** — dispute it with a **mandatory comment** →
+  writes `kk_problem_appeals` (`status='pending'`).
+
+### How it works
+
+- **Accountant identity.** The shared `ACCESS_PASSWORD` locks the dashboard but
+  does not say *who* logged in. The login now also asks for a **personal login
+  code**, resolved **server-side** via the existing shared `resolve_login_code`
+  RPC (`login_codes` table, same Supabase project as the accountants dashboard).
+  The resolved identity `{employee_id, full_name, role, can_see_all}` is stored
+  in an **HMAC-signed, HttpOnly** session cookie — the browser cannot forge or
+  change it. No accountant id/name/role is ever trusted from form data.
+- **Server-side gate** (`server.js` → `ticketGate`). After login the server
+  computes the accountant's unresolved yesterday tickets. If any remain, every
+  dashboard page redirects to `/review-tickets` and every protected API returns
+  **423**. Opening a dashboard URL or calling an API directly cannot bypass it.
+  The login, logout, health check and the review page + its APIs stay reachable
+  (no redirect loop). Supervisors (`head_accountant, ceo, founder, qa, admin` or
+  `can_see_all`) are the only explicit bypass.
+- **"Yesterday" = the full previous calendar day in `Asia/Yerevan`** (not the
+  last 24h). One shared helper, `yesterdayRange()` in `lib/ticketReview.js`,
+  returns an inclusive-start / exclusive-end UTC range and is reused by the gate,
+  review page, API, tests and the Telegram report. It uses `Intl` timezone math,
+  so it is correct regardless of the server's UTC clock. **A ticket's business
+  date is the `Asia/Yerevan` calendar day of its `detected_at`.**
+- **Not blocked by:** today's tickets, older tickets, another accountant's
+  tickets, reviewer-confirmed false positives (`verdict='not_problematic'`),
+  test chats, or tickets already accepted/appealed.
+- **Durable + race-safe.** Writes go through the `SECURITY DEFINER` RPC
+  `kk_ticket_answer` (one transaction; locks the ticket row `FOR SHARE`), which
+  guarantees a ticket can never be **both** accepted and appealed and rejects
+  duplicates. `EXECUTE` is granted to `service_role` only. Answering the last
+  ticket recomputes the count server-side and unlocks the platform immediately.
+- **Read-only on business data.** The gate only **reads** `kk_problems`; it never
+  modifies `chats`, `messages`, `chat_employee_presence`, `mqa_chats` or the
+  original `kk_problems` rows. Reactions are written only to the workflow tables
+  `kk_problem_acknowledgements` / `kk_problem_appeals` (RLS already enabled).
+
+### Daily Telegram ticket report
+
+`scripts/daily-report.js` now also sends a compact per-accountant Russian report
+for yesterday to `TELEGRAM_CHAT_ID` (`📋 Отчёт по тикетам за ДД.ММ.ГГГГ`), with
+`Апелляций` / `Принято` / `Без ответа` and 🔴/🟠/🟢 severity lists. The counts
+come from the **same** shared logic as the gate (`lib/ticketReview.js`), so they
+never drift from the platform. Content is HTML-escaped, long reports are split
+safely on line boundaries (never mid-ticket), and idempotency keys off the
+Asia/Yerevan report date so it is not sent twice for the same day. The existing
+"missing responsibles" summary is still sent, unchanged.
+
 ## Migrations
 
 One **additive, read-only** migration: it creates the
@@ -342,3 +400,9 @@ One **additive, read-only** migration: it creates the
 `chat_employee_presence` and `messages` tables (see `sql/`). No existing table,
 data or logic is modified. The view is `security_invoker = true` and its access
 is revoked from `anon`/`authenticated`.
+
+A second **additive** migration, `sql/003_ticket_review_gate.sql`, adds the
+`public.kk_ticket_answer(...)` RPC used by the ticket gate. It creates **no new
+tables** and modifies no business data — it only inserts into the existing
+`kk_problem_acknowledgements` / `kk_problem_appeals` workflow tables inside one
+transaction, and `EXECUTE` is restricted to `service_role`.

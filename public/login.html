@@ -31,11 +31,13 @@
       h1 { font-size: 1.2rem; margin: 0 0 6px; }
       p.hint { margin: 0 0 20px; color: var(--muted); font-size: 0.85rem; }
       label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }
-      input[type="password"] {
+      input[type="password"], input[type="text"] {
         width: 100%; padding: 12px 14px; font-size: 1rem;
         border: 1px solid var(--border); border-radius: 10px;
         background: var(--bg); color: var(--text);
       }
+      input + label { margin-top: 14px; }
+      input[type="text"] { text-transform: uppercase; letter-spacing: 0.06em; }
       input:focus-visible, button:focus-visible {
         outline: 2px solid var(--accent); outline-offset: 2px;
       }
@@ -54,19 +56,31 @@
   <body>
     <main class="card">
       <h1>Проблемные чаты</h1>
-      <p class="hint">Системный чек-лист. Введите пароль доступа.</p>
-      <p class="error" id="error" role="alert">Неверный пароль. Попробуйте ещё раз.</p>
+      <p class="hint">Введите общий пароль доступа и ваш личный код бухгалтера.</p>
+      <p class="error" id="error" role="alert">Неверный пароль или код. Попробуйте ещё раз.</p>
       <form method="POST" action="/login" autocomplete="on">
-        <label for="password">Пароль</label>
-        <input id="password" name="password" type="password" required autofocus
-               autocomplete="current-password" aria-label="Пароль доступа" />
+        <label for="password">Пароль доступа</label>
+        <input id="password" name="password" type="password" autofocus
+               autocomplete="current-password" aria-label="Общий пароль доступа" />
+        <label for="code">Личный код бухгалтера</label>
+        <input id="code" name="code" type="text" required
+               autocomplete="off" inputmode="latin" aria-label="Личный код бухгалтера"
+               placeholder="Напр. A1B2C3D4" />
         <button type="submit">Войти</button>
       </form>
     </main>
     <script>
-      // Показать сообщение об ошибке, если сервер вернул ?error=1.
-      if (new URLSearchParams(location.search).has("error")) {
-        document.getElementById("error").classList.add("show");
+      // Показать сообщение об ошибке, если сервер вернул ?error=...
+      const err = new URLSearchParams(location.search).get("error");
+      if (err) {
+        const box = document.getElementById("error");
+        const texts = {
+          pass: "Неверный пароль доступа.",
+          code: "Неизвестный личный код бухгалтера.",
+          server: "Временная ошибка входа. Попробуйте ещё раз.",
+        };
+        box.textContent = texts[err] || "Неверный пароль или код. Попробуйте ещё раз.";
+        box.classList.add("show");
       }
     </script>
   </body>

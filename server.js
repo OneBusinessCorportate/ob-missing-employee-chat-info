@@ -1,13 +1,23 @@
 // Минимальный веб-сервис на Express:
-//   GET  /             -> дашборд (статичный, mobile-friendly), под защитой входа
-//   GET  /login        -> страница входа по общему паролю
-//   POST /login        -> проверка пароля, установка подписанной cookie
-//   POST /logout       -> выход
-//   GET  /api/problem-chats -> JSON со списком проблемных чатов и счётчиками
-//   GET  /healthz      -> health-check для Render (всегда открыт)
+//   GET  /                     -> дашборд (статичный, mobile-friendly), под входом
+//   GET  /login                -> страница входа (личный код + общий пароль)
+//   POST /login                -> проверка пароля + резолв личного кода, cookie
+//   POST /logout               -> выход
+//   GET  /review-tickets       -> обязательная страница разбора вчерашних тикетов
+//   GET  /api/review/tickets   -> вчерашние необработанные тикеты бухгалтера
+//   GET  /api/review/progress  -> прогресс обработки (для разблокировки)
+//   POST /api/review/accept    -> «Принять» тикет
+//   POST /api/review/appeal    -> «Подать апелляцию» (обязательный комментарий)
+//   GET  /api/problem-chats    -> JSON со списком проблемных чатов и счётчиками
+//   GET  /healthz              -> health-check для Render (всегда открыт)
 //
-// Сервисный ключ Supabase остаётся на сервере; браузер общается только с
-// /api/problem-chats и никогда не видит ключ.
+// Серверный ключ Supabase остаётся на сервере; браузер общается только с API и
+// никогда не видит ни ключ, ни личность в открытом (неподписанном) виде.
+//
+// Персональная блокировка («сначала обработай вчерашние тикеты»): после входа
+// СЕРВЕР (не фронтенд) проверяет, есть ли у вошедшего бухгалтера вчерашние
+// необработанные тикеты, и если да — не пускает никуда, кроме страницы разбора и
+// её API. Разблокировка происходит сразу после обработки последнего тикета.
 
 import express from "express";
 import path from "node:path";
@@ -16,12 +26,20 @@ import { getProblemChats } from "./lib/problemChats.js";
 import {
   authEnabled,
   checkPassword,
-  issueToken,
   isAuthed,
   sessionCookie,
   clearCookie,
   createRateLimiter,
+  signIdentity,
+  identityFromReq,
 } from "./lib/auth.js";
+import { resolveLoginCode, isSupervisor } from "./lib/identity.js";
+import {
+  getGateState,
+  acceptTicket,
+  appealTicket,
+  severityOf,
+} from "./lib/ticketReview.js";
 import {
   beginLogin,
   confirmCode,
@@ -33,13 +51,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Доверяем заголовку X-Forwarded-For от прокси Render — чтобы rate limiting
-// видел реальный IP клиента, а не адрес прокси.
 app.set("trust proxy", 1);
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// Health-check оставляем полностью открытым — его дёргает Render.
+// Health-check полностью открыт — его дёргает Render.
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
 
 // --- Вход ---------------------------------------------------------------
@@ -48,15 +64,28 @@ app.get("/login", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "login.html"));
 });
 
-// Ограничиваем попытки входа, чтобы нельзя было подбирать пароль перебором.
+// Ограничиваем попытки входа, чтобы нельзя было подбирать код/пароль перебором.
 const loginLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
-app.post("/login", loginLimiter, (req, res) => {
+app.post("/login", loginLimiter, async (req, res) => {
   const password = (req.body && req.body.password) || "";
-  if (!checkPassword(password)) {
-    return res.status(401).redirect("/login?error=1");
+  const code = (req.body && req.body.code) || "";
+
+  // 1) Общий пароль (если включён) — «замок» на весь дашборд.
+  if (authEnabled && !checkPassword(password)) {
+    return res.redirect("/login?error=pass");
   }
-  res.set("Set-Cookie", sessionCookie(issueToken()));
-  res.redirect("/");
+
+  // 2) Личный код — достоверная ЛИЧНОСТЬ бухгалтера. Обязателен: без неё
+  //    персональная блокировка невозможна. Резолвим ТОЛЬКО на сервере.
+  try {
+    const identity = await resolveLoginCode(code);
+    if (!identity) return res.redirect("/login?error=code");
+    res.set("Set-Cookie", sessionCookie(signIdentity(identity)));
+    return res.redirect("/");
+  } catch (err) {
+    console.error("[/login] resolve code failed", err);
+    return res.redirect("/login?error=server");
+  }
 });
 
 app.post("/logout", (req, res) => {
@@ -64,19 +93,217 @@ app.post("/logout", (req, res) => {
   res.redirect("/login");
 });
 
-// --- Защита остального ---------------------------------------------------
-// Всё, что ниже, доступно только вошедшим (если вход включён).
+// --- Базовая защита входом ------------------------------------------------
 function requireAuth(req, res, next) {
   if (isAuthed(req)) return next();
-  // Для API отдаём 401 JSON, для страниц — редирект на форму входа.
   if (req.path.startsWith("/api/")) {
     return res.status(401).json({ ok: false, error: "Требуется вход." });
   }
   return res.redirect("/login");
 }
 
+// Требует достоверную личность бухгалтера (для персональных API разбора).
+function requireAccountant(req, res, next) {
+  const acc = identityFromReq(req);
+  if (!acc) {
+    return res.status(401).json({ ok: false, error: "Требуется вход бухгалтера." });
+  }
+  req.accountant = acc;
+  next();
+}
+
+// ---------------------------------------------------------------------------
+// Обязательный разбор вчерашних тикетов. Эти маршруты РЕГИСТРИРУЮТСЯ ДО gate,
+// поэтому заблокированный бухгалтер может ими пользоваться (иначе — тупик).
+// Страница отдаётся как самодостаточный HTML (стили/скрипты внутри), чтобы не
+// зависеть от статики, которая закрыта за gate.
+// ---------------------------------------------------------------------------
+app.get("/review-tickets", requireAuth, (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "review-tickets.html"));
+});
+
+const reviewReadLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
+const reviewWriteLimiter = createRateLimiter({ windowMs: 60_000, max: 30 });
+
+// Публичное (безопасное) представление тикета — без внутренних полей.
+function publicTicket(t) {
+  return {
+    problem_id: t.problem_id,
+    source: t.source,
+    client_name: t.client_name || null,
+    chat_name: t.chat_name || null,
+    chat_id: t.contract_id || null,
+    chat_link: t.chat_link || null,
+    problem_title: t.problem_title || null,
+    problem_description: t.problem_description || null,
+    evidence: t.ai_comment || null,
+    detected_at: t.detected_at || null,
+    severity: severityOf(t.priority),
+    accountant_name: t.accountant_name || null,
+    status: t.status || null,
+  };
+}
+
+function progressPayload(state) {
+  return {
+    total: state.total,
+    answered: state.accepted + state.appealed,
+    accepted: state.accepted,
+    appealed: state.appealed,
+    remaining: state.unanswered,
+    complete: state.complete,
+  };
+}
+
+app.get(
+  "/api/review/tickets",
+  requireAuth,
+  requireAccountant,
+  reviewReadLimiter,
+  async (req, res) => {
+    try {
+      const state = await getGateState(req.accountant);
+      res.set("Cache-Control", "no-store");
+      res.json({
+        ok: true,
+        accountant: { full_name: req.accountant.full_name },
+        supervisor: isSupervisor(req.accountant),
+        progress: progressPayload(state),
+        tickets: state.unansweredTickets.map(publicTicket),
+      });
+    } catch (err) {
+      console.error("[/api/review/tickets]", err);
+      res.status(500).json({ ok: false, error: "Не удалось загрузить тикеты." });
+    }
+  },
+);
+
+app.get(
+  "/api/review/progress",
+  requireAuth,
+  requireAccountant,
+  reviewReadLimiter,
+  async (req, res) => {
+    try {
+      const state = await getGateState(req.accountant);
+      res.set("Cache-Control", "no-store");
+      res.json({ ok: true, progress: progressPayload(state) });
+    } catch (err) {
+      console.error("[/api/review/progress]", err);
+      res.status(500).json({ ok: false, error: "Не удалось получить прогресс." });
+    }
+  },
+);
+
+// Безопасные тексты ошибок (без деталей БД).
+const REVIEW_ERROR_TEXT = {
+  not_found: "Тикет не найден.",
+  forbidden: "Это не ваш тикет.",
+  not_eligible: "Тикет не требует обработки.",
+  not_in_review_window: "Тикет не относится ко вчерашнему дню.",
+  comment_required: "Нужен комментарий к апелляции.",
+  comment_too_long: "Комментарий слишком длинный.",
+  already_accepted: "Тикет уже принят.",
+  already_appealed: "По тикету уже подана апелляция.",
+  bad_action: "Некорректное действие.",
+};
+
+async function handleReviewWrite(req, res, action) {
+  const problemId = (req.body && req.body.problem_id) || "";
+  if (!problemId) {
+    return res.status(400).json({ ok: false, error: "Не указан тикет." });
+  }
+  try {
+    const result =
+      action === "accept"
+        ? await acceptTicket(problemId, req.accountant, {
+            note: (req.body && req.body.comment) || null,
+          })
+        : await appealTicket(problemId, req.accountant, {
+            comment: (req.body && req.body.comment) || "",
+          });
+
+    if (!result || result.ok === false) {
+      const code = (result && result.error) || "bad_action";
+      const status = code === "forbidden" ? 403 : code === "not_found" ? 404 : 409;
+      return res
+        .status(status)
+        .json({ ok: false, error: REVIEW_ERROR_TEXT[code] || "Не удалось выполнить." });
+    }
+
+    // Пересчёт прогресса на сервере → мгновенная разблокировка на фронте.
+    const state = await getGateState(req.accountant);
+    res.set("Cache-Control", "no-store");
+    return res.json({
+      ok: true,
+      status: result.status,
+      duplicate: Boolean(result.duplicate),
+      progress: progressPayload(state),
+    });
+  } catch (err) {
+    console.error(`[/api/review/${action}]`, err);
+    return res.status(500).json({ ok: false, error: "Внутренняя ошибка. Попробуйте позже." });
+  }
+}
+
+app.post(
+  "/api/review/accept",
+  requireAuth,
+  requireAccountant,
+  reviewWriteLimiter,
+  (req, res) => handleReviewWrite(req, res, "accept"),
+);
+app.post(
+  "/api/review/appeal",
+  requireAuth,
+  requireAccountant,
+  reviewWriteLimiter,
+  (req, res) => handleReviewWrite(req, res, "appeal"),
+);
+
+// ---------------------------------------------------------------------------
+// GATE: всё, что НИЖЕ, доступно обычному бухгалтеру только когда все вчерашние
+// тикеты обработаны. Управление/надзор (supervisor) и неопознанные dev-сессии
+// проходят свободно. Реализовано на СЕРВЕРЕ — прямой заход по URL дашборда или
+// вызов защищённого API обойти блокировку не может.
+// ---------------------------------------------------------------------------
+async function ticketGate(req, res, next) {
+  const acc = identityFromReq(req);
+  if (!acc) return next(); // нет личности (локальная разработка без пароля) — некого блокировать
+  if (isSupervisor(acc)) return next(); // явный обход только для привилегированных ролей
+
+  let state;
+  try {
+    state = await getGateState(acc);
+  } catch (err) {
+    // Не смогли проверить тикеты — безопаснее удержать на странице разбора, чем
+    // пустить в обход. Тупика нет: /review-tickets и /api/review/* зарегистрированы
+    // ВЫШЕ gate и остаются доступны.
+    console.error("[ticketGate] state error", err);
+    if (req.path.startsWith("/api/")) {
+      return res.status(503).json({ ok: false, error: "Проверка тикетов недоступна." });
+    }
+    return res.redirect("/review-tickets");
+  }
+
+  if (state.complete) return next();
+
+  if (req.path.startsWith("/api/")) {
+    return res.status(423).json({
+      ok: false,
+      error: "Перед началом работы необходимо обработать все тикеты за вчерашний день.",
+      gate: "tickets_pending",
+      progress: progressPayload(state),
+    });
+  }
+  return res.redirect("/review-tickets");
+}
+
+app.use(requireAuth, ticketGate);
+
+// --- Защищённое содержимое (под входом И под gate) ------------------------
 const apiLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
-app.get("/api/problem-chats", requireAuth, apiLimiter, async (_req, res) => {
+app.get("/api/problem-chats", apiLimiter, async (_req, res) => {
   try {
     const { problems, notChecked, counts } = await getProblemChats();
     res.set("Cache-Control", "no-store");
@@ -94,10 +321,6 @@ app.get("/api/problem-chats", requireAuth, apiLimiter, async (_req, res) => {
 });
 
 // --- Одноразовый вход в Telegram по номеру (для Render) ------------------
-// Пошаговый вход через браузер: номер → код → 2FA. Подключение MTProto живёт
-// в памяти этого всегда работающего процесса между запросами, поэтому не
-// «отваливается на полпути», как интерактивный Shell/крон. Доступно только
-// вошедшим и только при TELEGRAM_LOGIN_ENABLED=1; выключайте после настройки.
 function requireLoginFeature(_req, res, next) {
   if (!loginEnabled()) {
     return res
@@ -109,7 +332,7 @@ function requireLoginFeature(_req, res, next) {
 
 const tgLoginLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
 
-app.get("/telegram-login", requireAuth, requireLoginFeature, (_req, res) => {
+app.get("/telegram-login", requireLoginFeature, (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "telegram-login.html"));
 });
 
@@ -127,35 +350,39 @@ function tgHandler(fn) {
 
 app.post(
   "/telegram-login/start",
-  requireAuth,
   requireLoginFeature,
   tgLoginLimiter,
   tgHandler((b) => beginLogin(b.phone)),
 );
 app.post(
   "/telegram-login/code",
-  requireAuth,
   requireLoginFeature,
   tgLoginLimiter,
   tgHandler((b) => confirmCode(b.code)),
 );
 app.post(
   "/telegram-login/password",
-  requireAuth,
   requireLoginFeature,
   tgLoginLimiter,
   tgHandler((b) => confirmPassword(b.password)),
 );
 
-// Статика (дашборд) — тоже под защитой входа.
-app.use(requireAuth, express.static(path.join(__dirname, "public")));
+// Статика (дашборд) — под входом и под gate.
+app.use(express.static(path.join(__dirname, "public")));
 
-app.listen(PORT, () => {
-  console.log(`Dashboard listening on port ${PORT}`);
-  if (!authEnabled) {
-    console.warn(
-      "[auth] ВНИМАНИЕ: ACCESS_PASSWORD не задан — дашборд открыт без пароля. " +
-        "Обязательно задайте ACCESS_PASSWORD в продакшене (Render).",
-    );
-  }
-});
+// Запускаем сервер только при прямом вызове файла — чтобы server.js можно было
+// импортировать в тестах без побочного app.listen (как это делает daily-report).
+const isDirectRun = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+if (isDirectRun) {
+  app.listen(PORT, () => {
+    console.log(`Dashboard listening on port ${PORT}`);
+    if (!authEnabled) {
+      console.warn(
+        "[auth] ВНИМАНИЕ: ACCESS_PASSWORD не задан — общий замок дашборда выключен. " +
+          "Задайте ACCESS_PASSWORD в продакшене (Render).",
+      );
+    }
+  });
+}
+
+export { app };
