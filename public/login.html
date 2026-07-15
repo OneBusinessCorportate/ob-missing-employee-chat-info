@@ -54,12 +54,12 @@
   <body>
     <main class="card">
       <h1>Вход</h1>
-      <p class="hint">Введите личный код бухгалтера (или пароль доступа).</p>
-      <p class="error" id="error" role="alert">Неверный код или пароль. Попробуйте ещё раз.</p>
+      <p class="hint">Введите ваш личный код бухгалтера.</p>
+      <p class="error" id="error" role="alert">Неверный код. Попробуйте ещё раз.</p>
       <form method="POST" action="/login" autocomplete="on">
-        <label for="code">Код / пароль</label>
+        <label for="code">Личный код</label>
         <input id="code" name="code" type="password" required autofocus
-               autocomplete="current-password" aria-label="Личный код или пароль доступа" />
+               autocomplete="current-password" aria-label="Личный код бухгалтера" />
         <button type="submit">Войти</button>
       </form>
     </main>

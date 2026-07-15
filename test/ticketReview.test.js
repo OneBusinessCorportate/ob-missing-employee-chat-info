@@ -193,3 +193,12 @@ test("17. админ (can_see_all) не блокируется", () => {
   // Нет сессии — гейт не решает (этим занимается requireAuth).
   assert.equal(gateDecision({ session: null, unanswered: 5, path: "/" }).blocked, false);
 });
+
+test("сессия без личного кода и без admin блокируется на защищённых путях", () => {
+  const noId = { name: "shared" }; // нет emp, нет adm
+  assert.equal(gateDecision({ session: noId, unanswered: 0, path: "/" }).blocked, true);
+  assert.equal(gateDecision({ session: noId, unanswered: 0, path: "/api/problem-chats" }).blocked, true);
+  // Разбор/служебные пути всё равно доступны, чтобы не было петли.
+  assert.equal(gateDecision({ session: noId, unanswered: 0, path: "/review" }).blocked, false);
+  assert.equal(gateDecision({ session: noId, unanswered: 0, path: "/healthz" }).blocked, false);
+});

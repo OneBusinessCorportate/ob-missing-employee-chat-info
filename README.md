@@ -193,19 +193,23 @@ ticket assigned to them that was detected *yesterday*** (previous calendar day,
 - **Принять** — confirm the problem is valid (comment optional).
 - **Подать апелляцию** — dispute it; a non-empty written comment is **required**.
 
-**Identity.** Accountants log in on `/login` with their **personal code** from
-`public.login_codes` (`employee_id` + `can_see_all`). The verified identity is
-stored in a signed **HttpOnly** session cookie — the browser never sends the
-accountant id for authorization; the server derives it from the cookie only.
-The shared `ACCESS_PASSWORD` is a **privileged admin/observer login** that
-bypasses the gate (`can_see_all` codes bypass it too). Ordinary accountants are
-never silently bypassed.
+**Identity.** Everyone logs in on `/login` with a **personal code** from
+`public.login_codes` (`employee_id` + `can_see_all`) — there is **no shared
+password login**. The verified identity is stored in a signed **HttpOnly**
+session cookie; the browser never sends the accountant id for authorization, the
+server derives it from the cookie only. The **only** bypass is a code with
+`can_see_all = true` (managers/admins, e.g. the "Администратор" code). Ordinary
+accountants are never bypassed, and a session without a valid accountant
+identity is blocked from everything.
 
-**Enforcement is server-side.** `requireGateClear` middleware (`server.js`)
-blocks all protected pages and APIs and redirects to `/review` until the
-accountant's unanswered count is `0`. The login/logout, `/review` page, the
-`/api/review/*` endpoints, `/healthz` and favicon stay reachable to avoid a
-redirect loop. Opening a dashboard URL or API directly cannot bypass it.
+**Enforcement is server-side and total.** `requireGateClear` middleware
+(`server.js`) blocks *all* protected pages and APIs and redirects to `/review`
+until the accountant's unanswered count is `0`. Only login/logout, the `/review`
+page, the `/api/review/*` endpoints, `/healthz` and the favicon stay reachable
+(to avoid a redirect loop). Anything else — the dashboard, `/api/problem-chats`,
+Telegram-login, static files — is blocked. It **fails closed**: if the count
+can't be computed, or the session has no accountant identity, access is denied.
+Opening a URL or API directly cannot bypass it.
 
 A ticket blocks only if it: belongs to the authenticated accountant, was
 detected yesterday (`kk_problems.detected_at`, in `Asia/Yerevan`), has an active
@@ -225,14 +229,15 @@ other business tables are never modified. See [`sql/003_kk_review_gate.sql`](sql
 
 ## Access control
 
-The dashboard is behind a login gate (no extra dependencies): the user enters a
-personal code (or `ACCESS_PASSWORD`) on `/login`, the server sets a signed
-**HttpOnly** cookie (HMAC, 30-day TTL) carrying the verified identity, and every
-request is checked against it. `/healthz` stays public for Render. The
+The dashboard is behind a login gate (no extra dependencies): the user enters
+their **personal code** on `/login`, the server sets a signed **HttpOnly**
+cookie (HMAC, 30-day TTL) carrying the verified identity, and every request is
+checked against it. There is no shared-password login — the shared
+`ACCESS_PASSWORD` no longer grants access or bypasses the ticket gate (managers
+use a `can_see_all` code instead). `/healthz` stays public for Render. The
 `/api/problem-chats`, `/api/review/*` and login endpoints are rate-limited in
-memory (per IP). If neither `ACCESS_PASSWORD` nor `SUPABASE_SERVICE_ROLE_KEY` is
-set the gate is disabled and the server logs a warning — **always set them in
-production.**
+memory (per IP). Login requires `SUPABASE_SERVICE_ROLE_KEY` (to verify codes); if
+it is absent the server logs a warning — **always set it in production.**
 
 The underlying tables have Row Level Security enabled. The dashboard reads them
 **server-side with the service role key** and exposes a read-only

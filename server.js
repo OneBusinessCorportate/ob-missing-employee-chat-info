@@ -21,9 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getProblemChats } from "./lib/problemChats.js";
 import {
-  authEnabled,
   loginRequired,
-  checkPassword,
   isAuthed,
   getSession,
   signSession,
@@ -66,24 +64,23 @@ app.get("/login", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "login.html"));
 });
 
-// Ограничиваем попытки входа, чтобы нельзя было подбирать код/пароль перебором.
+// Ограничиваем попытки входа, чтобы нельзя было подбирать код перебором.
 const loginLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+// Вход ТОЛЬКО по личному коду (public.login_codes). Общий пароль больше не даёт
+// доступ и не обходит гейт — единственный обход у кода с can_see_all
+// (менеджер/админ). Идентичность проверяется на сервере и кладётся в
+// подписанную сессию; данные из формы для авторизации не используются.
 app.post("/login", loginLimiter, async (req, res) => {
   const code = ((req.body && (req.body.code ?? req.body.password)) || "")
     .toString()
     .trim();
 
-  // 1) Общий пароль доступа = привилегированный вход (админ/наблюдатель).
-  if (authEnabled && code && checkPassword(code)) {
-    res.set("Set-Cookie", sessionCookie(signSession({ adm: true, name: "admin" })));
-    return res.redirect("/");
-  }
-
-  // 2) Личный код бухгалтера — проверяем по login_codes на сервере.
   if (code && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
       const ident = await lookupLoginCode(code);
       if (ident && ident.active) {
+        // adm=true только для кодов с can_see_all (менеджер/админ) — они обходят
+        // обязательный разбор тикетов. Обычный бухгалтер (emp) — под гейтом.
         res.set(
           "Set-Cookie",
           sessionCookie(
@@ -253,17 +250,25 @@ app.post("/api/review/appeal", reviewLimiter, (req, res) => handleAnswer("appeal
 // защищённых страницах и API. Проверка идёт на сервере, обойти нельзя.
 async function requireGateClear(req, res, next) {
   const s = req.session;
-  // Быстрый выход без запроса к БД: нет сессии / админ / не бухгалтер / путь-исключение.
-  if (!s || s.adm || !s.emp || isGateExempt(req.path)) return next();
+  // Быстрый выход без запроса к БД: нет сессии (решает requireAuth), путь-исключение
+  // (вход/выход/страница и API разбора/health) или админ/менеджер (can_see_all).
+  if (!s || isGateExempt(req.path)) return next();
+  if (s.adm) return next();
 
-  try {
-    const gate = await loadAccountantGate(String(s.emp));
-    const decision = gateDecision({ session: s, unanswered: gate.unanswered, path: req.path });
-    if (!decision.blocked) return next();
-  } catch (err) {
-    console.error("[gate]", err.message);
-    // Fail-closed для бухгалтера: не пускаем на защищённые ресурсы при сбое.
+  // По умолчанию считаем, что есть необработанные тикеты (fail-closed): при сбое
+  // расчёта или без идентичности бухгалтера доступ НЕ открываем.
+  let unanswered = 1;
+  if (s.emp) {
+    try {
+      const gate = await loadAccountantGate(String(s.emp));
+      unanswered = gate.unanswered;
+    } catch (err) {
+      console.error("[gate]", err.message);
+    }
   }
+
+  const decision = gateDecision({ session: s, unanswered, path: req.path });
+  if (!decision.blocked) return next();
 
   if (req.path.startsWith("/api/")) {
     return res.status(403).json({
