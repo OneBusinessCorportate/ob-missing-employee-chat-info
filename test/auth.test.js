@@ -4,8 +4,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 process.env.ACCESS_PASSWORD = "s3cret-pass";
-const { issueToken, verifyToken, checkPassword, parseCookies, authEnabled } =
-  await import("../lib/auth.js");
+const {
+  issueToken,
+  verifyToken,
+  checkPassword,
+  parseCookies,
+  authEnabled,
+  signSession,
+  readSession,
+} = await import("../lib/auth.js");
 
 test("вход включён, когда задан ACCESS_PASSWORD", () => {
   assert.equal(authEnabled, true);
@@ -35,6 +42,25 @@ test("подделанный токен отклоняется", () => {
   assert.equal(verifyToken("мусор"), false);
   assert.equal(verifyToken(""), false);
   assert.equal(verifyToken(null), false);
+});
+
+test("сессия бухгалтера подписывается и читается сервером", () => {
+  const token = signSession({ emp: "emp-42", adm: false, name: "Тест" });
+  const s = readSession(token);
+  assert.equal(s.emp, "emp-42");
+  assert.equal(s.adm, false);
+  assert.equal(s.name, "Тест");
+});
+
+test("подделанная/просроченная сессия отклоняется (identity не из браузера)", () => {
+  const token = signSession({ emp: "emp-42", adm: true });
+  // Подмена полезной нагрузки без валидной подписи не проходит.
+  const tampered = token.slice(0, -2) + (token.endsWith("00") ? "11" : "00");
+  assert.equal(readSession(tampered), null);
+  assert.equal(readSession("garbage"), null);
+  assert.equal(readSession(""), null);
+  const expired = signSession({ emp: "e" }, Date.now() - 60 * 24 * 60 * 60 * 1000);
+  assert.equal(readSession(expired), null);
 });
 
 test("разбор cookie-заголовка", () => {

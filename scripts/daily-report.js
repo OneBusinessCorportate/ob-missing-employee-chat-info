@@ -17,6 +17,8 @@
 import fs from "node:fs";
 import { getProblemChats } from "../lib/problemChats.js";
 import { getClientChecks } from "../lib/clientChecks.js";
+import { loadReportData } from "../lib/ticketReview.js";
+import { buildTicketReport } from "../lib/ticketReport.js";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
@@ -107,23 +109,22 @@ async function sendTelegram(text, { attempts = 4, baseDelayMs = 1000 } = {}) {
   throw lastErr;
 }
 
-// --- Идемпотентность: не слать сводку дважды за один день ------------------
-function todayKey() {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
-}
-function alreadySentToday() {
+// --- Идемпотентность: не слать отчёт дважды за один отчётный день -----------
+// Ключ — отчётная дата (вчера в Asia/Yerevan, YYYY-MM-DD), а не UTC-«сегодня»,
+// чтобы совпадать с содержимым отчёта независимо от часового пояса сервера.
+function alreadySent(reportKey) {
   if (!STATE_FILE) return false;
   try {
     const saved = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-    return saved.last_sent_date === todayKey();
+    return saved.last_sent_date === reportKey;
   } catch {
     return false;
   }
 }
-function markSentToday() {
+function markSent(reportKey) {
   if (!STATE_FILE) return;
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ last_sent_date: todayKey() }));
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ last_sent_date: reportKey }));
   } catch (err) {
     log("warn", "state_write_failed", { error: err.message });
   }
@@ -146,15 +147,31 @@ async function main() {
   const message = buildMessage(counts, PLATFORM_URL, checks.counts);
   log("info", "client_checks_built", { ...checks.counts });
 
+  // Отчёт по тикетам за вчера (Asia/Yerevan) — по одной секции на бухгалтера.
+  // Использует ту же общую логику, что и серверный гейт (lib/ticketReview.js),
+  // поэтому цифры на дашборде разбора и в Telegram не расходятся.
+  const report = await loadReportData();
+  const ticketMessages = buildTicketReport(report.accountants, {
+    label: report.range.label,
+    dashboardUrl: PLATFORM_URL,
+  });
+  log("info", "ticket_report_built", {
+    report_date: report.range.ymd,
+    accountants: report.accountants.length,
+    messages: ticketMessages.length,
+  });
+
   console.log("---- Daily summary ----\n" + message + "\n-----------------------");
+  console.log("---- Ticket report ----\n" + ticketMessages.join("\n\n") + "\n-----------------------");
 
   if (DRY_RUN) {
     log("info", "dry_run_skip_send");
     return;
   }
 
-  if (alreadySentToday()) {
-    log("info", "idempotent_skip", { date: todayKey() });
+  // Идемпотентность — по отчётной дате (вчера, Yerevan).
+  if (alreadySent(report.range.ymd)) {
+    log("info", "idempotent_skip", { report_date: report.range.ymd });
     return;
   }
 
@@ -164,9 +181,12 @@ async function main() {
     );
   }
 
+  // Сначала отчёт по тикетам (может быть несколько сообщений при большом объёме),
+  // затем существующая сводка по проблемным чатам.
+  for (const part of ticketMessages) await sendTelegram(part);
   await sendTelegram(message);
-  markSentToday();
-  log("info", "report_done");
+  markSent(report.range.ymd);
+  log("info", "report_done", { report_date: report.range.ymd });
 }
 
 // Запускаем main только при прямом вызове файла — чтобы buildMessage можно

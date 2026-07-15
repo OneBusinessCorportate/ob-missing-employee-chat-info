@@ -31,7 +31,7 @@
       h1 { font-size: 1.2rem; margin: 0 0 6px; }
       p.hint { margin: 0 0 20px; color: var(--muted); font-size: 0.85rem; }
       label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }
-      input[type="password"] {
+      input[type="password"], input[type="text"] {
         width: 100%; padding: 12px 14px; font-size: 1rem;
         border: 1px solid var(--border); border-radius: 10px;
         background: var(--bg); color: var(--text);
@@ -53,13 +53,13 @@
   </head>
   <body>
     <main class="card">
-      <h1>Проблемные чаты</h1>
-      <p class="hint">Системный чек-лист. Введите пароль доступа.</p>
-      <p class="error" id="error" role="alert">Неверный пароль. Попробуйте ещё раз.</p>
+      <h1>Вход</h1>
+      <p class="hint">Введите личный код бухгалтера (или пароль доступа).</p>
+      <p class="error" id="error" role="alert">Неверный код или пароль. Попробуйте ещё раз.</p>
       <form method="POST" action="/login" autocomplete="on">
-        <label for="password">Пароль</label>
-        <input id="password" name="password" type="password" required autofocus
-               autocomplete="current-password" aria-label="Пароль доступа" />
+        <label for="code">Код / пароль</label>
+        <input id="code" name="code" type="password" required autofocus
+               autocomplete="current-password" aria-label="Личный код или пароль доступа" />
         <button type="submit">Войти</button>
       </form>
     </main>

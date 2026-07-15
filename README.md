@@ -184,15 +184,55 @@ write, without touching Supabase.
 | `DRY_RUN`                   | report             | `1` to print instead of send.                              |
 | `REPORT_STATE_FILE`         | report             | Optional. Path to a JSON file so the summary is not sent twice in one day. |
 
+## Mandatory "review yesterday's tickets" gate
+
+Before an accountant can use the platform, they must answer **every unresolved
+ticket assigned to them that was detected *yesterday*** (previous calendar day,
+`Asia/Yerevan`). For each ticket they choose exactly one action:
+
+- **Принять** — confirm the problem is valid (comment optional).
+- **Подать апелляцию** — dispute it; a non-empty written comment is **required**.
+
+**Identity.** Accountants log in on `/login` with their **personal code** from
+`public.login_codes` (`employee_id` + `can_see_all`). The verified identity is
+stored in a signed **HttpOnly** session cookie — the browser never sends the
+accountant id for authorization; the server derives it from the cookie only.
+The shared `ACCESS_PASSWORD` is a **privileged admin/observer login** that
+bypasses the gate (`can_see_all` codes bypass it too). Ordinary accountants are
+never silently bypassed.
+
+**Enforcement is server-side.** `requireGateClear` middleware (`server.js`)
+blocks all protected pages and APIs and redirects to `/review` until the
+accountant's unanswered count is `0`. The login/logout, `/review` page, the
+`/api/review/*` endpoints, `/healthz` and favicon stay reachable to avoid a
+redirect loop. Opening a dashboard URL or API directly cannot bypass it.
+
+A ticket blocks only if it: belongs to the authenticated accountant, was
+detected yesterday (`kk_problems.detected_at`, in `Asia/Yerevan`), has an active
+status (`new` / `waiting_for_accountant` / `returned_to_accountant`), is not a
+test chat, and has neither an acknowledgement nor a valid appeal. Today's,
+older, other accountants', resolved/test tickets never block.
+
+**Shared logic.** All counting lives in [`lib/ticketReview.js`](lib/ticketReview.js)
+(`previousDayRange`, `computeAccountantGate`, `computeReport`, `validateAnswer`,
+`gateDecision`) and is reused by the gate, the `/api/review/*` endpoints, and the
+daily Telegram report, so the dashboard and Telegram never drift. Answers are
+written atomically via the `kk_review_submit` SECURITY DEFINER function
+(advisory-locked per ticket; DB unique indexes prevent duplicate acceptances and
+concurrent pending appeals). We only ever **insert** into
+`kk_problem_acknowledgements` / `kk_problem_appeals` — `kk_problems` rows and all
+other business tables are never modified. See [`sql/003_kk_review_gate.sql`](sql/003_kk_review_gate.sql).
+
 ## Access control
 
-The dashboard is behind a lightweight shared-password gate (no extra Supabase
-tables, no dependencies): the user enters `ACCESS_PASSWORD` once on `/login`,
-the server sets a signed **HttpOnly** cookie (HMAC, 30-day TTL), and every
+The dashboard is behind a login gate (no extra dependencies): the user enters a
+personal code (or `ACCESS_PASSWORD`) on `/login`, the server sets a signed
+**HttpOnly** cookie (HMAC, 30-day TTL) carrying the verified identity, and every
 request is checked against it. `/healthz` stays public for Render. The
-`/api/problem-chats` and login endpoints are rate-limited in memory
-(60/min and 10/min per IP). If `ACCESS_PASSWORD` is not set the gate is
-disabled and the server logs a warning — **always set it in production.**
+`/api/problem-chats`, `/api/review/*` and login endpoints are rate-limited in
+memory (per IP). If neither `ACCESS_PASSWORD` nor `SUPABASE_SERVICE_ROLE_KEY` is
+set the gate is disabled and the server logs a warning — **always set them in
+production.**
 
 The underlying tables have Row Level Security enabled. The dashboard reads them
 **server-side with the service role key** and exposes a read-only
@@ -337,8 +377,17 @@ the cron string in `render.yaml` to move the send time.
 
 ## Migrations
 
-One **additive, read-only** migration: it creates the
-`public.v_chat_missing_responsibles` view over the existing `chats`,
-`chat_employee_presence` and `messages` tables (see `sql/`). No existing table,
-data or logic is modified. The view is `security_invoker = true` and its access
-is revoked from `anon`/`authenticated`.
+All migrations under `sql/` are **additive** — no existing table, data or logic
+is modified:
+
+- `001` / `002` — the `public.v_chat_missing_responsibles` view over the existing
+  `chats`, `chat_employee_presence` and `messages` tables (read-only), later made
+  RLS-safe so any project key can read it.
+- `003_kk_review_gate.sql` — the mandatory ticket-review gate. Idempotently
+  asserts the dedup indexes on `kk_problem_acknowledgements` /
+  `kk_problem_appeals` and adds the `kk_review_submit` SECURITY DEFINER function
+  that writes an accountant's answer atomically (advisory-locked per ticket).
+  It only **inserts** into the workflow tables; `kk_problems` and other business
+  tables are never touched. No new tables are created — the feature reuses the
+  existing `kk_problems`, `kk_problem_acknowledgements`, `kk_problem_appeals` and
+  `login_codes` tables.
