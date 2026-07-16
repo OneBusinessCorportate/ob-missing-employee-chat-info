@@ -30,11 +30,16 @@ Supabase project (`fjsogozwseqoxgddjeig`):
 - **`public.chat_employee_presence`** — the membership check: who is present in
   each chat, with `employee_role` (`accountant` / `head_accountant` / `manager` /
   …) and `is_present`.
-- **`public.messages`** — actual messages, each with a `sender_role`. If a staff
-  member of a role has written in the chat, that role is treated as present too
-  (hard evidence of participation — the bot's membership check occasionally fails
-  with "member not found" and similar). To fix those failures at the source you
-  can refresh membership with a Telegram **user account** — see
+- **`public.messages`** — actual messages, each with a `sender_role` **and** a
+  `sender_id` (the author's Telegram id). If a staff member of a role has written
+  in the chat, that role is treated as present too (hard evidence of
+  participation — the bot's membership check occasionally fails with "member not
+  found" and similar). The role of a message author is taken from `sender_role`
+  **or**, more reliably, by matching `sender_id` to the **active** employee in
+  `public.employees` (their real role) — `sender_role` is set at ingest time and
+  is often wrong (staff mislabeled as `client`, etc.; see `sql/006`). Matching by
+  id recovers those. To fix membership failures at the source you can refresh
+  membership with a Telegram **user account** — see
   [Refreshing presence via a Telegram user account](#refreshing-presence-via-a-telegram-user-account-phone-login).
 
 A read-only view **`public.v_chat_missing_responsibles`** aggregates these into
