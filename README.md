@@ -188,6 +188,7 @@ write, without touching Supabase.
 | `PORT`                      | dashboard          | Render sets this automatically.                             |
 | `DRY_RUN`                   | report             | `1` to print instead of send.                              |
 | `REPORT_STATE_FILE`         | report             | Optional. Path to a JSON file so the summary is not sent twice in one day. |
+| `SYNC_MAX_AGE_HOURS`        | dashboard + report | Optional. Hours before the membership sync is considered stale (default 30). |
 
 ## Access control
 
@@ -337,6 +338,24 @@ every group the account is in.
 Only active employees are matched, so a former employee still sitting in a chat
 does not "fill" a role. Run it **before** the daily summary so the dashboard and
 the Telegram message reflect the fresh membership.
+
+### Sync-freshness monitoring (so a dead sync can't hide)
+
+The sync is the fragile link: its `TELEGRAM_SESSION` can expire, and then the
+cron fails **silently** — presence stops updating while the dashboard still
+looks fine (real incident: data frozen for 6 days). To stop that from going
+unnoticed, `lib/syncHealth.js` measures when the membership sync last wrote real
+membership rows (`telegram_status ∈ {member, administrator, creator}`; message /
+manual signals are excluded on purpose). If it is older than `SYNC_MAX_AGE_HOURS`
+(default 30):
+
+- the **daily Telegram summary** gets a `⚠️` line **at the top** telling the team
+  the presence data may be stale and the Telegram login likely needs refreshing;
+- the **dashboard** shows the same warning banner (from `sync_health` on
+  `/api/problem-chats`).
+
+So if the sync stops, you find out the **next morning** instead of weeks later.
+Both are read-only and never block the report.
 
 ## Deploying on Render
 

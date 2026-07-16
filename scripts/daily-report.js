@@ -17,6 +17,7 @@
 import fs from "node:fs";
 import { getProblemChats } from "../lib/problemChats.js";
 import { getClientChecks } from "../lib/clientChecks.js";
+import { getSyncHealth } from "../lib/syncHealth.js";
 import {
   buildDailyTicketData,
   buildTicketReport,
@@ -36,7 +37,35 @@ function log(level, event, fields = {}) {
   else console.log(line);
 }
 
-export function buildMessage(counts, platformUrl = PLATFORM_URL, clientCounts = null) {
+// Предупреждение о «мёртвой» синхронизации: если реальная проверка членства
+// давно не обновлялась, цифры ниже могут быть устаревшими. Ставим В НАЧАЛО
+// сообщения, чтобы это заметили сразу и починили вход в Telegram.
+export function buildSyncWarning(syncHealth) {
+  if (!syncHealth || !syncHealth.stale) return "";
+  let howLong;
+  if (syncHealth.age_hours == null) {
+    howLong = "ещё ни разу не обновлялась";
+  } else if (syncHealth.age_hours >= 48) {
+    howLong = `не обновлялась ${Math.floor(syncHealth.age_hours / 24)} дн.`;
+  } else {
+    howLong = `не обновлялась ${Math.round(syncHealth.age_hours)} ч`;
+  }
+  return (
+    `⚠️ Синхронизация присутствия ${howLong}. Данные о том, кто в чатах, могут ` +
+    `быть устаревшими — вероятно, истёк вход в Telegram (TELEGRAM_SESSION), ` +
+    `нужно войти заново (см. /telegram-login).`
+  );
+}
+
+export function buildMessage(
+  counts,
+  platformUrl = PLATFORM_URL,
+  clientCounts = null,
+  syncHealth = null,
+) {
+  const warning = buildSyncWarning(syncHealth);
+  const prefix = warning ? warning + "\n\n" : "";
+
   // Путь «0 проблем» — позитивное сообщение, а не пустой отчёт.
   if (counts.total_problems === 0) {
     // Отдельный случай: реальных чатов вообще нет (например, есть только
@@ -48,7 +77,7 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL, clientCounts = 
     if (platformUrl) {
       msg += `\n\nЧтобы увидеть больше информации, перейдите по ссылке:\n${platformUrl}`;
     }
-    return msg;
+    return prefix + msg;
   }
 
   const lines = [
@@ -70,7 +99,7 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL, clientCounts = 
     "Чтобы увидеть больше информации, перейдите по ссылке:",
     platformUrl || "(ссылка на платформу не настроена — задайте PLATFORM_URL)",
   );
-  return lines.join("\n");
+  return prefix + lines.join("\n");
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -153,7 +182,19 @@ async function main() {
   // пробрасывается и крон падает, чтобы проблему было видно, а не замаскировано
   // «старым» форматом. Отправляем только полный, новый формат — либо ничего.
   const checks = await getClientChecks();
-  const message = buildMessage(counts, PLATFORM_URL, checks.counts);
+
+  // Свежесть синхронизации присутствия — чтобы «мёртвый» синк (истёкшая сессия)
+  // не оставался незамеченным: при устаревании добавляем предупреждение в начало
+  // сводки. Не роняем отчёт, если проверку свежести сделать не удалось.
+  let syncHealth = null;
+  try {
+    syncHealth = await getSyncHealth();
+    log("info", "sync_health", { ...syncHealth });
+  } catch (err) {
+    log("warn", "sync_health_failed", { error: err.message });
+  }
+
+  const message = buildMessage(counts, PLATFORM_URL, checks.counts, syncHealth);
   log("info", "client_checks_built", { ...checks.counts });
 
   console.log("---- Daily summary ----\n" + message + "\n-----------------------");

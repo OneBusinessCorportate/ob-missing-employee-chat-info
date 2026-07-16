@@ -23,6 +23,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getProblemChats } from "./lib/problemChats.js";
+import { getSyncHealth } from "./lib/syncHealth.js";
 import {
   authEnabled,
   checkPassword,
@@ -306,12 +307,21 @@ const apiLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 app.get("/api/problem-chats", apiLimiter, async (_req, res) => {
   try {
     const { problems, notChecked, counts } = await getProblemChats();
+    // Свежесть синхронизации присутствия — чтобы дашборд предупреждал, если
+    // детект «кто в чате» устарел (мёртвый синк). Не роняем ответ при ошибке.
+    let syncHealth = null;
+    try {
+      syncHealth = await getSyncHealth();
+    } catch (err) {
+      console.error("[/api/problem-chats] sync health", err);
+    }
     res.set("Cache-Control", "no-store");
     res.json({
       ok: true,
       counts,
       chats: problems,
       not_checked: notChecked || [],
+      sync_health: syncHealth,
       generated_at: new Date().toISOString(),
     });
   } catch (err) {
