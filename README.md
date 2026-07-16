@@ -217,6 +217,39 @@ them (via the view) and never writes. To change what shows up:
   `chat_employee_presence` row for that `chat_id` with the right `employee_role`
   and `is_present = true`.
 
+### Manual overrides (`chat_responsibility_overrides`)
+
+Two real cases could not be expressed by presence/`excluded_from_qa` alone, so
+operators kept fixing them by hand while the checklist re-flagged the chat every
+day. The additive table `public.chat_responsibility_overrides` (migration
+`sql/004_chat_responsibility_overrides.sql`) fixes both, per `(chat_id, role)`:
+
+| `status`       | Meaning                                                        | Effect on the view                     |
+| -------------- | ------------------------------------------------------------- | -------------------------------------- |
+| `not_required` | This role is **not needed** for this chat (e.g. "бухгалтер не должен быть в этом чате"). | Role dropped from "required" → never counted as missing. |
+| `present`      | The responsible **is** in the chat but the check can't see them (bot membership failed, or the employee is `is_active=false` so the sync skips them). | Role treated as covered, same as a real presence/message signal. |
+
+The view exposes `req_accountant / req_head_accountant / req_manager` alongside
+`has_*`, and a role is "missing" only when it is **required and not present**
+(`missing = required AND NOT has`). Like the Telegram sync, an override can only
+*clear* a false problem — never invent one. Overrides are durable and reversible
+(delete the row). Add/adjust one with:
+
+```sql
+insert into public.chat_responsibility_overrides (chat_id, role, status, note, updated_by)
+values (-4767514206, 'accountant', 'present', 'Aida = бухгалтер', 'you@onebusiness.am')
+on conflict (chat_id, role) do update
+  set status = excluded.status, note = excluded.note, updated_by = excluded.updated_by, updated_at = now();
+```
+
+### The dashboard auto-refreshes
+
+`public/index.html` re-reads `/api/problem-chats` every 60 s (and immediately
+when the tab regains focus), so edits — overrides, a fresh presence sync — show
+up without pressing **↻ Обновить**. The daily Telegram summary and the dashboard
+read the **same** live view, so their counts match by construction (the summary
+is a once-a-day snapshot; the dashboard is always current).
+
 ## Refreshing presence via a Telegram **user account** (phone login)
 
 The presence data (`chat_employee_presence`) was originally filled by a **bot**

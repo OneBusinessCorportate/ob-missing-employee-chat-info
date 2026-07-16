@@ -487,6 +487,17 @@
       });
 
       load();
+
+      // Автообновление: тихо перечитываем данные, чтобы дашборд отражал свежие
+      // правки (оверрайды, синхронизацию присутствия) без ручного «Обновить».
+      // На скрытой вкладке не дёргаем API; обновляем сразу при возврате на вкладку.
+      const AUTO_REFRESH_MS = 60_000;
+      setInterval(() => {
+        if (document.visibilityState === "visible") load();
+      }, AUTO_REFRESH_MS);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") load();
+      });
     </script>
   </body>
 </html>

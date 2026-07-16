@@ -166,6 +166,41 @@ test("checked отсутствует в строке — считается пр
   assert.equal(counts.total_problems, 1);
 });
 
+// --- Ручные оверрайды: не требуется роль / роль подтверждена вручную ---
+test("роль с оверрайдом not_required (req_*=false) не считается пропуском", () => {
+  // Нет бухгалтера по сигналу, но роль для чата не требуется -> не проблема.
+  const { problems, counts } = computeProblems([
+    chat("клиент без бухгалтерии", { acc: false, head: true, mgr: true, req_accountant: false }),
+  ]);
+  assert.equal(counts.total_problems, 0);
+  assert.equal(counts.missing_accountant, 0);
+  assert.equal(problems.length, 0);
+});
+
+test("оверрайд not_required снимает только свою роль, остальные пропуски видны", () => {
+  const { problems, counts } = computeProblems([
+    chat("c", { acc: false, head: false, mgr: true, req_accountant: false }),
+  ]);
+  assert.equal(counts.total_problems, 1);
+  assert.equal(counts.missing_accountant, 0); // роль не требуется
+  assert.equal(counts.missing_head_accountant, 1); // всё ещё пропуск
+  assert.equal(problems[0].missing_count, 1);
+});
+
+test("has_* от оверрайда present закрывает роль (missing=false)", () => {
+  // Вью выставляет has_accountant=true при status='present'; здесь эмулируем.
+  const { counts } = computeProblems([
+    chat("ответственный отмечен вручную", { acc: true, head: true, mgr: true }),
+  ]);
+  assert.equal(counts.total_problems, 0);
+});
+
+test("req_* по умолчанию true — старые вью без оверрайдов работают как раньше", () => {
+  const { counts } = computeProblems([{ chat_id: 1, chat_name: "x", has_head_accountant: true, has_manager: true }]);
+  assert.equal(counts.missing_accountant, 1); // req_accountant не пришёл => требуется
+  assert.equal(counts.total_problems, 1);
+});
+
 // Регрессия: воспроизводим точные вердикты из реального отчёта (по флагам вью).
 test("вердикты как в реальном отчёте", () => {
   const rows = [
