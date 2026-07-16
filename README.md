@@ -229,11 +229,14 @@ day. The additive table `public.chat_responsibility_overrides` (migration
 | `not_required` | This role is **not needed** for this chat (e.g. "бухгалтер не должен быть в этом чате"). | Role dropped from "required" → never counted as missing. |
 | `present`      | The responsible **is** in the chat but the check can't see them (bot membership failed, or the employee is `is_active=false` so the sync skips them). | Role treated as covered, same as a real presence/message signal. |
 
-The view exposes `req_accountant / req_head_accountant / req_manager` alongside
-`has_*`, and a role is "missing" only when it is **required and not present**
-(`missing = required AND NOT has`). Like the Telegram sync, an override can only
-*clear* a false problem — never invent one. Overrides are durable and reversible
-(delete the row). Add/adjust one with:
+The view treats `has_*` as "**role satisfied**" — someone fills it, *or* it is
+marked `not_required` — and also exposes `req_accountant / req_head_accountant /
+req_manager` for the explicit "not required" state. A role is "missing" only when
+it is **required and not satisfied** (`missing = required AND NOT has`; folding
+`not_required` into `has_*` also keeps older consumers that read only `has_*`
+correct — see `sql/005`). Like the Telegram sync, an override can only *clear* a
+false problem — never invent one. Overrides are durable and reversible (delete the
+row). Add/adjust one with:
 
 ```sql
 insert into public.chat_responsibility_overrides (chat_id, role, status, note, updated_by)
