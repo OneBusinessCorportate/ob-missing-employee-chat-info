@@ -23,6 +23,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getProblemChats } from "./lib/problemChats.js";
+import { getClientChecks } from "./lib/clientChecks.js";
 import {
   authEnabled,
   checkPassword,
@@ -306,12 +307,33 @@ const apiLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 app.get("/api/problem-chats", apiLimiter, async (_req, res) => {
   try {
     const { problems, notChecked, counts } = await getProblemChats();
+
+    // Доп. метрики из Agreements (mqa_chats) — ровно те же две цифры, что и в
+    // ежедневной Telegram-сводке (getClientChecks): «нет HVHH в Agreements» и
+    // «нет чатов у активных месячных клиентов». Показываем их и на дашборде,
+    // чтобы каждая строка сводки имела здесь свой видимый, кликабельный аналог.
+    //
+    // Best-effort: сбой ЭТОГО источника не должен ронять весь дашборд —
+    // основной чек-лист (проблемные чаты) остаётся доступен. Если чтение не
+    // удалось, отдаём client_checks=null и текст ошибки для диагностики.
+    let clientChecks = null;
+    let clientChecksError = null;
+    try {
+      const cc = await getClientChecks();
+      clientChecks = { counts: cc.counts, no_hvhh: cc.noHvhh, no_chat: cc.noChat };
+    } catch (err) {
+      clientChecksError = err.message;
+      console.error("[/api/problem-chats] client checks failed", err);
+    }
+
     res.set("Cache-Control", "no-store");
     res.json({
       ok: true,
       counts,
       chats: problems,
       not_checked: notChecked || [],
+      client_checks: clientChecks,
+      client_checks_error: clientChecksError,
       generated_at: new Date().toISOString(),
     });
   } catch (err) {
