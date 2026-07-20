@@ -59,15 +59,26 @@ test("пустая строка/пробелы считаются отсутст
 // --- 2) Нет HVHH в Agreements ---
 test("пустой HVHH попадает в noHvhh, а заполненный — нет", () => {
   const { noHvhh, counts } = computeClientChecks([
-    client({ agr_no: "B-1", hvhh: null }),
-    client({ agr_no: "B-2", hvhh: "" }),
-    client({ agr_no: "B-3", hvhh: "88888888" }),
+    client({ agr_no: "B-1", name_agr: "AAA", chat_name: "AAA", hvhh: null }),
+    client({ agr_no: "B-2", name_agr: "BBB", chat_name: "BBB", hvhh: "" }),
+    client({ agr_no: "B-3", name_agr: "CCC", chat_name: "CCC", hvhh: "88888888" }),
   ]);
   assert.equal(counts.no_hvhh, 2);
   assert.deepEqual(
     noHvhh.map((r) => r.agr_no).sort(),
     ["B-1", "B-2"],
   );
+});
+
+test("пустой HVHH, но есть номер договора (4+ цифр) — НЕ считается «нет HVHH»", () => {
+  const { noHvhh, counts } = computeClientChecks([
+    client({ agr_no: "B-4233", name_agr: "ACME", chat_name: "ACME", hvhh: null }),
+    client({ agr_no: "ИП Гончар/ 4345 RU", name_agr: null, chat_name: null, hvhh: "" }),
+    client({ agr_no: "SQA-VONABI", name_agr: "VONABI", chat_name: "VONABI", hvhh: null }),
+  ]);
+  // Первые две строки имеют номер договора → пропускаем; остаётся только VONABI.
+  assert.equal(counts.no_hvhh, 1);
+  assert.deepEqual(noHvhh.map((r) => r.agr_no), ["SQA-VONABI"]);
 });
 
 // --- 3) Нет чатов у активных месячных клиентов ---
@@ -86,7 +97,15 @@ test("есть ссылка на чат — в noChat не попадает", ()
 // --- Клиент участвует сразу в нескольких списках ---
 test("один клиент может попасть во все три списка", () => {
   const { counts } = computeClientChecks([
-    client({ accountant: null, manager: null, hvhh: null, chat_link: null }),
+    client({
+      agr_no: "B-1",
+      name_agr: "NoNumber",
+      chat_name: "NoNumber",
+      accountant: null,
+      manager: null,
+      hvhh: null,
+      chat_link: null,
+    }),
   ]);
   assert.equal(counts.no_responsible, 1);
   assert.equal(counts.no_hvhh, 1);
