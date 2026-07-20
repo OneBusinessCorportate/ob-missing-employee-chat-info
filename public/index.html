@@ -618,7 +618,6 @@
         showSkeletons();
         try {
           const res = await fetch("/api/problem-chats", { headers: { Accept: "application/json" } });
-          if (res.status === 401) { location.href = "/login"; return; }
           const data = await res.json();
           if (!data.ok) throw new Error(data.error || "Ошибка загрузки");
           state.all = data.chats;
@@ -663,7 +662,6 @@
           const chip = el("chip-notchecked");
           chip.hidden = nc === 0;
           chip.textContent = "Не проверено: " + nc;
-          el("logout").hidden = false;
           state.generatedAt = data.generated_at;
           updateFooterMeta();
           render();

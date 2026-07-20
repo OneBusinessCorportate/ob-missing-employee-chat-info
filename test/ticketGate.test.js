@@ -18,7 +18,6 @@ const { yesterdayRange, acceptTicket, appealTicket } = await import("../lib/tick
 const range = yesterdayRange(new Date());
 const YESTERDAY_TS = new Date(range.startUtc.getTime() + 12 * 3600 * 1000).toISOString();
 const TODAY_TS = new Date(range.endUtc.getTime() + 3600 * 1000).toISOString();
-const OLD_TS = new Date(range.startUtc.getTime() - 3 * 86400 * 1000).toISOString();
 
 // --- Фейковый клиент Supabase (чейнится и awaitable) ---------------------
 function makeFakeClient(tables) {
@@ -67,7 +66,6 @@ function makeFakeClient(tables) {
 }
 
 const ACC = { employee_id: "emp-1", full_name: "Иван Петров", role: "accountant", can_see_all: false };
-const BOSS = { employee_id: "emp-9", full_name: "Босс", role: "head_accountant", can_see_all: true };
 
 const cookieFor = (identity) => `ob_session=${encodeURIComponent(signIdentity(identity))}`;
 
@@ -110,20 +108,21 @@ async function withServer(tables, fn) {
   }
 }
 
-// 7 + 16. Один необработанный вчерашний тикет → блокировка страниц и API.
-test("блокирует: страница дашборда → редирект на /review-tickets, API → 423", async () => {
+// Дашборд открыт для всех: даже у бухгалтера с необработанными вчерашними
+// тикетами страница и API проблемных чатов доступны (блокировки просмотра нет).
+// Страница разбора и её API продолжают работать для вошедшего бухгалтера.
+test("дашборд открыт даже при необработанных тикетах; разбор доступен вошедшему", async () => {
   const tables = { kk_problems: [mkTicket({ problem_id: "p1" })], kk_problem_acknowledgements: [], kk_problem_appeals: [], v_chat_missing_responsibles: [] };
   await withServer(tables, async (call) => {
     const home = await call("/", { cookie: cookieFor(ACC) });
-    assert.equal(home.status, 302);
-    assert.equal(home.headers.get("location"), "/review-tickets");
+    assert.equal(home.status, 200);
 
     const api = await call("/api/problem-chats", { cookie: cookieFor(ACC) });
-    assert.equal(api.status, 423);
+    assert.equal(api.status, 200);
     const j = await api.json();
-    assert.equal(j.gate, "tickets_pending");
+    assert.equal(j.ok, true);
 
-    // Страница разбора и её API остаются доступны (нет тупика).
+    // Страница разбора и её API остаются доступны вошедшему бухгалтеру.
     const review = await call("/review-tickets", { cookie: cookieFor(ACC) });
     assert.equal(review.status, 200);
     const list = await call("/api/review/tickets", { cookie: cookieFor(ACC) });
@@ -135,70 +134,20 @@ test("блокирует: страница дашборда → редирект
   });
 });
 
-// 6. Все вчерашние тикеты отвечены → доступ открыт.
-test("не блокирует: тикет с согласием → дашборд открыт", async () => {
-  const tables = {
-    kk_problems: [mkTicket({ problem_id: "p1" })],
-    kk_problem_acknowledgements: [{ problem_id: "p1", accountant_id: "emp-1" }],
-    kk_problem_appeals: [],
-    v_chat_missing_responsibles: [],
-  };
-  await withServer(tables, async (call) => {
-    const home = await call("/", { cookie: cookieFor(ACC) });
-    assert.equal(home.status, 200); // express.static отдаёт index.html
-  });
-});
-
-// 5. Нет вчерашних тикетов → не блокирует.
-test("не блокирует: у бухгалтера нет вчерашних тикетов", async () => {
-  await withServer({ kk_problems: [], v_chat_missing_responsibles: [] }, async (call) => {
-    const home = await call("/", { cookie: cookieFor(ACC) });
-    assert.equal(home.status, 200);
-  });
-});
-
-// 8. Сегодняшние тикеты не блокируют.
-test("не блокирует: сегодняшний тикет", async () => {
-  await withServer({ kk_problems: [mkTicket({ problem_id: "pt", detected_at: TODAY_TS })], v_chat_missing_responsibles: [] }, async (call) => {
-    const home = await call("/", { cookie: cookieFor(ACC) });
-    assert.equal(home.status, 200);
-  });
-});
-
-// 10. Старые тикеты (вне окна) не блокируют.
-test("не блокирует: старый тикет вне окна вчера", async () => {
-  await withServer({ kk_problems: [mkTicket({ problem_id: "po", detected_at: OLD_TS })], v_chat_missing_responsibles: [] }, async (call) => {
-    const home = await call("/", { cookie: cookieFor(ACC) });
-    assert.equal(home.status, 200);
-  });
-});
-
-// 9. Тикет другого бухгалтера не блокирует.
-test("не блокирует: вчерашний тикет назначен другому бухгалтеру", async () => {
-  const tables = { kk_problems: [mkTicket({ problem_id: "px", accountant_id: "emp-2", accountant_name: "Другой" })], v_chat_missing_responsibles: [] };
-  await withServer(tables, async (call) => {
-    const home = await call("/", { cookie: cookieFor(ACC) });
-    assert.equal(home.status, 200);
-  });
-});
-
-// 17. Управление/надзор (supervisor) проходит блокировку даже с необработанными тикетами.
-test("admin/supervisor bypass: проходит несмотря на необработанный тикет", async () => {
-  const tables = { kk_problems: [mkTicket({ problem_id: "p1", accountant_id: "emp-9", accountant_name: "Босс" })], v_chat_missing_responsibles: [] };
-  await withServer(tables, async (call) => {
-    const home = await call("/", { cookie: cookieFor(BOSS) });
-    assert.equal(home.status, 200);
-  });
-});
-
-// Требуется вход: без cookie — редирект/401.
-test("без сессии: страница → редирект на /login, API → 401", async () => {
+// Дашборд открыт без сессии (без входа/пароля); API проблемных чатов тоже открыт.
+// Персональный API разбора по-прежнему требует вход.
+test("без сессии: дашборд и API проблемных чатов открыты; API разбора требует вход", async () => {
   await withServer({ kk_problems: [], v_chat_missing_responsibles: [] }, async (call) => {
     const home = await call("/");
-    assert.equal(home.status, 302);
-    assert.equal(home.headers.get("location"), "/login");
+    assert.equal(home.status, 200);
     const api = await call("/api/problem-chats");
-    assert.equal(api.status, 401);
+    assert.equal(api.status, 200);
+    const j = await api.json();
+    assert.equal(j.ok, true);
+
+    // Разбор тикетов — персональный, всё ещё под входом.
+    const review = await call("/api/review/tickets");
+    assert.equal(review.status, 401);
   });
 });
 

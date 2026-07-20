@@ -1,23 +1,23 @@
 // Минимальный веб-сервис на Express:
-//   GET  /                     -> дашборд (статичный, mobile-friendly), под входом
+//   GET  /                     -> дашборд проблемных чатов, ОТКРЫТ ДЛЯ ВСЕХ (без входа)
+//   GET  /api/problem-chats    -> JSON со списком проблемных чатов и счётчиками (открыт)
 //   GET  /login                -> страница входа (личный код + общий пароль)
 //   POST /login                -> проверка пароля + резолв личного кода, cookie
 //   POST /logout               -> выход
-//   GET  /review-tickets       -> обязательная страница разбора вчерашних тикетов
+//   GET  /review-tickets       -> страница разбора вчерашних тикетов (нужен вход)
 //   GET  /api/review/tickets   -> вчерашние необработанные тикеты бухгалтера
-//   GET  /api/review/progress  -> прогресс обработки (для разблокировки)
+//   GET  /api/review/progress  -> прогресс обработки
 //   POST /api/review/accept    -> «Принять» тикет
 //   POST /api/review/appeal    -> «Подать апелляцию» (обязательный комментарий)
-//   GET  /api/problem-chats    -> JSON со списком проблемных чатов и счётчиками
 //   GET  /healthz              -> health-check для Render (всегда открыт)
 //
 // Серверный ключ Supabase остаётся на сервере; браузер общается только с API и
 // никогда не видит ни ключ, ни личность в открытом (неподписанном) виде.
 //
-// Персональная блокировка («сначала обработай вчерашние тикеты»): после входа
-// СЕРВЕР (не фронтенд) проверяет, есть ли у вошедшего бухгалтера вчерашние
-// необработанные тикеты, и если да — не пускает никуда, кроме страницы разбора и
-// её API. Разблокировка происходит сразу после обработки последнего тикета.
+// Дашборд проблемных чатов открыт для всех — вход/пароль для его просмотра не
+// нужны, чтобы каждый мог видеть проблемные чаты любого менеджера и фильтровать
+// их по владельцу. Личный вход (код) остаётся только для персонального разбора
+// тикетов (accept/appeal), где нужно достоверно знать, КТО отвечает.
 
 import express from "express";
 import path from "node:path";
@@ -263,46 +263,12 @@ app.post(
 );
 
 // ---------------------------------------------------------------------------
-// GATE: всё, что НИЖЕ, доступно обычному бухгалтеру только когда все вчерашние
-// тикеты обработаны. Управление/надзор (supervisor) и неопознанные dev-сессии
-// проходят свободно. Реализовано на СЕРВЕРЕ — прямой заход по URL дашборда или
-// вызов защищённого API обойти блокировку не может.
+// Дашборд проблемных чатов — ОТКРЫТ ДЛЯ ВСЕХ. Ни входа, ни пароля, ни блокировки
+// по тикетам для его просмотра нет: любой может открыть страницу и API и увидеть
+// проблемные чаты всех менеджеров (с фильтром по владельцу чата). Персональный
+// разбор тикетов (accept/appeal) остаётся закрыт входом — он зарегистрирован
+// ВЫШЕ и требует достоверной личности.
 // ---------------------------------------------------------------------------
-async function ticketGate(req, res, next) {
-  const acc = identityFromReq(req);
-  if (!acc) return next(); // нет личности (локальная разработка без пароля) — некого блокировать
-  if (isSupervisor(acc)) return next(); // явный обход только для привилегированных ролей
-
-  let state;
-  try {
-    state = await getGateState(acc);
-  } catch (err) {
-    // Не смогли проверить тикеты — безопаснее удержать на странице разбора, чем
-    // пустить в обход. Тупика нет: /review-tickets и /api/review/* зарегистрированы
-    // ВЫШЕ gate и остаются доступны.
-    console.error("[ticketGate] state error", err);
-    if (req.path.startsWith("/api/")) {
-      return res.status(503).json({ ok: false, error: "Проверка тикетов недоступна." });
-    }
-    return res.redirect("/review-tickets");
-  }
-
-  if (state.complete) return next();
-
-  if (req.path.startsWith("/api/")) {
-    return res.status(423).json({
-      ok: false,
-      error: "Перед началом работы необходимо обработать все тикеты за вчерашний день.",
-      gate: "tickets_pending",
-      progress: progressPayload(state),
-    });
-  }
-  return res.redirect("/review-tickets");
-}
-
-app.use(requireAuth, ticketGate);
-
-// --- Защищённое содержимое (под входом И под gate) ------------------------
 const apiLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 app.get("/api/problem-chats", apiLimiter, async (_req, res) => {
   try {
@@ -344,6 +310,9 @@ app.get("/api/problem-chats", apiLimiter, async (_req, res) => {
 });
 
 // --- Одноразовый вход в Telegram по номеру (для Render) ------------------
+// В отличие от дашборда, этот мощный поток (аутентификация Telegram-аккаунта)
+// остаётся ПОД ВХОДОМ (requireAuth) — открытым его делать нельзя. Плюс feature-
+// флаг TELEGRAM_LOGIN_ENABLED и ограничение частоты.
 function requireLoginFeature(_req, res, next) {
   if (!loginEnabled()) {
     return res
@@ -355,7 +324,7 @@ function requireLoginFeature(_req, res, next) {
 
 const tgLoginLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
 
-app.get("/telegram-login", requireLoginFeature, (_req, res) => {
+app.get("/telegram-login", requireAuth, requireLoginFeature, (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "telegram-login.html"));
 });
 
@@ -373,24 +342,27 @@ function tgHandler(fn) {
 
 app.post(
   "/telegram-login/start",
+  requireAuth,
   requireLoginFeature,
   tgLoginLimiter,
   tgHandler((b) => beginLogin(b.phone)),
 );
 app.post(
   "/telegram-login/code",
+  requireAuth,
   requireLoginFeature,
   tgLoginLimiter,
   tgHandler((b) => confirmCode(b.code)),
 );
 app.post(
   "/telegram-login/password",
+  requireAuth,
   requireLoginFeature,
   tgLoginLimiter,
   tgHandler((b) => confirmPassword(b.password)),
 );
 
-// Статика (дашборд) — под входом и под gate.
+// Статика (дашборд) — ОТКРЫТА ДЛЯ ВСЕХ (index.html = дашборд проблемных чатов).
 app.use(express.static(path.join(__dirname, "public")));
 
 // Запускаем сервер только при прямом вызове файла — чтобы server.js можно было

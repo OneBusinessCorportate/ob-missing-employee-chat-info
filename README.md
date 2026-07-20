@@ -10,9 +10,10 @@ It has two parts:
 
 1. **Dashboard** (`server.js` + `public/`) — a clean, mobile-friendly web page
    listing every problematic chat, what it is missing, and its Chat ID.
-   Protected by a shared-password login, with role filters, name/Chat-ID search,
-   sorting, CSV export, copy-Chat-ID, manual refresh and a "last checked"
-   timestamp.
+   **Open to everyone — no login/password to view** — so anyone can see every
+   manager's problematic chats. Includes role filters, an **owner (manager)
+   filter**, name/Chat-ID search, sorting, CSV export, copy-Chat-ID, manual
+   refresh and a "last checked" timestamp.
 2. **Daily Telegram summary** (`scripts/daily-report.js`) — posts only a short
    summary + a link to the dashboard. It never posts the full list.
    Sends with retry/backoff, structured JSON logs and optional idempotency.
@@ -179,8 +180,8 @@ write, without touching Supabase.
 | --------------------------- | ------------------ | ----------------------------------------------------------- |
 | `SUPABASE_URL`              | dashboard + report | Defaults to the OB FAQ URL.                                 |
 | `SUPABASE_SERVICE_ROLE_KEY` | dashboard + report | **Required.** Service role key (kept server-side only).      |
-| `ACCESS_PASSWORD`           | dashboard          | Shared login password. If unset, the dashboard is **open** (dev only) — set it in production. |
-| `SESSION_SECRET`            | dashboard          | Optional. HMAC secret for the session cookie; derived from `ACCESS_PASSWORD` if unset. |
+| `ACCESS_PASSWORD`           | ticket review      | Shared password for the **personal ticket-review** login only (`/review-tickets`). The problem-chats dashboard is open regardless. |
+| `SESSION_SECRET`            | ticket review      | Optional. HMAC secret for the session cookie; derived from `ACCESS_PASSWORD` if unset. |
 | `NODE_ENV`                  | dashboard          | Set to `production` on Render so the session cookie is `Secure`. |
 | `EXCLUDE_TEST_CHATS`        | dashboard + report | `0` to show test chats too. Default: exclude them.          |
 | `TEST_CHAT_PATTERN`         | dashboard + report | Optional regex for what counts as a test chat (default `^test`). |
@@ -198,13 +199,18 @@ write, without touching Supabase.
 
 ## Access control
 
-The dashboard is behind a lightweight shared-password gate (no extra Supabase
-tables, no dependencies): the user enters `ACCESS_PASSWORD` once on `/login`,
-the server sets a signed **HttpOnly** cookie (HMAC, 30-day TTL), and every
-request is checked against it. `/healthz` stays public for Render. The
-`/api/problem-chats` and login endpoints are rate-limited in memory
-(60/min and 10/min per IP). If `ACCESS_PASSWORD` is not set the gate is
-disabled and the server logs a warning — **always set it in production.**
+The **problem-chats dashboard is open to everyone** — `/`, `/api/problem-chats`
+and the static assets require no login or password, so anyone can view every
+manager's problematic chats and filter by owner. `/api/problem-chats` is still
+rate-limited in memory (60/min per IP) and `/healthz` stays public for Render.
+
+Login is only used for the **personal ticket-review flow** (`/review-tickets`,
+`/api/review/*`): the user enters `ACCESS_PASSWORD` + a personal code once on
+`/login`, the server sets a signed **HttpOnly** cookie (HMAC, 30-day TTL), and
+those review endpoints are checked against it (login endpoints rate-limited
+10/min per IP). Accepting/appealing a ticket needs to know *who* is acting, so
+that flow keeps its login. `ACCESS_PASSWORD`/`SESSION_SECRET` therefore only
+affect the review flow, not dashboard viewing.
 
 The underlying tables have Row Level Security enabled. The dashboard reads them
 **server-side with the service role key** and exposes a read-only
@@ -347,13 +353,17 @@ the cron string in `render.yaml` to move the send time.
   `kk_problem_ratings`. Enabling RLS **without** policies would block all access,
   so this is surfaced for a human to decide — it is **not** auto-fixed here.
 
-## Mandatory "answer yesterday's tickets first" gate
+## Personal "yesterday's tickets" review
 
-Every ordinary accountant must review **all of their tickets from yesterday**
-before they can use the rest of the platform. A ticket is a `public.kk_problems`
-row from the manual quality review (`source ∈ {margarita_review, sona_review}`;
-AI detections are **not** tickets here). For each yesterday ticket the accountant
-must pick exactly one action:
+> **Note:** the dashboard is now **open to everyone with no login**, so reviewing
+> tickets is **no longer a hard gate** that blocks dashboard access. The personal
+> review page (`/review-tickets`) and its APIs remain available for accountants
+> who log in with their personal code and want to accept/appeal their tickets.
+
+An accountant can review **their tickets from yesterday** on `/review-tickets`.
+A ticket is a `public.kk_problems` row from the manual quality review
+(`source ∈ {margarita_review, sona_review}`; AI detections are **not** tickets
+here). For each yesterday ticket the accountant picks exactly one action:
 
 - **Принять** — confirm the ticket is valid → writes `kk_problem_acknowledgements`.
 - **Подать апелляцию** — dispute it with a **mandatory comment** →
@@ -361,20 +371,17 @@ must pick exactly one action:
 
 ### How it works
 
-- **Accountant identity.** The shared `ACCESS_PASSWORD` locks the dashboard but
-  does not say *who* logged in. The login now also asks for a **personal login
-  code**, resolved **server-side** via the existing shared `resolve_login_code`
-  RPC (`login_codes` table, same Supabase project as the accountants dashboard).
-  The resolved identity `{employee_id, full_name, role, can_see_all}` is stored
-  in an **HMAC-signed, HttpOnly** session cookie — the browser cannot forge or
-  change it. No accountant id/name/role is ever trusted from form data.
-- **Server-side gate** (`server.js` → `ticketGate`). After login the server
-  computes the accountant's unresolved yesterday tickets. If any remain, every
-  dashboard page redirects to `/review-tickets` and every protected API returns
-  **423**. Opening a dashboard URL or calling an API directly cannot bypass it.
-  The login, logout, health check and the review page + its APIs stay reachable
-  (no redirect loop). Supervisors (`head_accountant, ceo, founder, qa, admin` or
-  `can_see_all`) are the only explicit bypass.
+- **Accountant identity.** The `/login` page asks for `ACCESS_PASSWORD` + a
+  **personal login code**, resolved **server-side** via the existing shared
+  `resolve_login_code` RPC (`login_codes` table, same Supabase project as the
+  accountants dashboard). The resolved identity
+  `{employee_id, full_name, role, can_see_all}` is stored in an **HMAC-signed,
+  HttpOnly** session cookie — the browser cannot forge or change it. No
+  accountant id/name/role is ever trusted from form data.
+- **No dashboard gate.** Viewing the problem-chats dashboard needs no login and
+  is never blocked by pending tickets. The `/api/review/*` endpoints still
+  require a valid session (personal identity) because accept/appeal must know
+  *who* is acting; the review page + its APIs are the only login-protected part.
 - **"Yesterday" = the full previous calendar day in `Asia/Yerevan`** (not the
   last 24h). One shared helper, `yesterdayRange()` in `lib/ticketReview.js`,
   returns an inclusive-start / exclusive-end UTC range and is reused by the gate,
@@ -389,7 +396,7 @@ must pick exactly one action:
   guarantees a ticket can never be **both** accepted and appealed and rejects
   duplicates. `EXECUTE` is granted to `service_role` only. Answering the last
   ticket recomputes the count server-side and unlocks the platform immediately.
-- **Read-only on business data.** The gate only **reads** `kk_problems`; it never
+- **Read-only on business data.** The review only **reads** `kk_problems`; it never
   modifies `chats`, `messages`, `chat_employee_presence`, `mqa_chats` or the
   original `kk_problems` rows. Reactions are written only to the workflow tables
   `kk_problem_acknowledgements` / `kk_problem_appeals` (RLS already enabled).
