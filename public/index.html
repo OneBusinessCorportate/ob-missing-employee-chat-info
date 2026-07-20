@@ -437,6 +437,17 @@
         const actions = document.createElement("div");
         actions.className = "actions";
 
+        // Ссылка «Открыть чат» — открывает конкретный чат в веб-Telegram.
+        if (c.chat_id) {
+          const link = document.createElement("a");
+          link.className = "link";
+          link.href = "https://web.telegram.org/a/#" + c.chat_id;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = "Открыть чат";
+          actions.appendChild(link);
+        }
+
         const copy = document.createElement("button");
         copy.type = "button";
         copy.className = "copy";
