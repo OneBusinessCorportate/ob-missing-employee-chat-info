@@ -66,6 +66,10 @@ row per client-agreement, also exposed as `public.v_mqa_active` for
 `scripts/daily-report.js`. The full message looks like:
 
 ```text
+У Shogher проблемных чатов - 5 @Manageronebusiness
+У Ripsime OneBusiness проблемных чатов - 3 @onebusiness_sale
+Без назначенного менеджера - 4 проблемных чатов
+
 У нас есть 18 проблемных чатов, из которых:
 
 14 без бухгалтера
@@ -76,11 +80,19 @@ row per client-agreement, also exposed as `public.v_mqa_active` for
 
 Чтобы увидеть больше информации, перейдите по ссылке:
 https://ob-missing-employee-chat-info.onrender.com/
-
-Доп. информация:
-Нет HVHH в Agreements: 29
-Нет чатов у активных месячных клиентов: 15
 ```
+
+The summary now **leads with a per-manager breakdown**: problem chats are split
+by their owning manager (chat owner), one line per manager with their problem
+count and Telegram `@`-mention. The owner is resolved in
+`public.v_chat_missing_responsibles` (see `sql/006_chat_owner_manager.sql`) from
+manager presence in the chat: the specific manager (Ripsime, Shogher, …) wins
+over the shared `@manager_onebusiness` account, which only owns a chat when no
+specific manager is present. Chats with no manager present fall into the
+"Без назначенного менеджера" block. Each manager's `@`-mention comes from
+`employees.telegram_username`. The same breakdown drives the **owner filter** on
+the dashboard (`by_manager` in `/api/problem-chats`). Grouping logic:
+`groupProblemsByManager` in `lib/problemChats.js`.
 
 The two Agreements metrics appear both inline in the "из которых" list and,
 for readability, again under the `Доп. информация:` (dop info) footer.

@@ -1,7 +1,7 @@
 // Тесты формирования текста ежедневной сводки, включая позитивные пути.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildMessage } from "../scripts/daily-report.js";
+import { buildMessage, buildManagerLines } from "../scripts/daily-report.js";
 
 test("0 проблем при наличии чатов — позитивное сообщение со ссылкой", () => {
   const msg = buildMessage({ total_problems: 0, total_chats: 700 }, "https://example.org");
@@ -50,6 +50,65 @@ test("без clientCounts основной список не содержит д
   );
   assert.doesNotMatch(msg, /нет HVHH в Agreements/);
   assert.doesNotMatch(msg, /нет чатов у активных/);
+});
+
+// --- Деление по менеджерам-владельцам (первые строки сводки) ---
+test("buildManagerLines: строка на менеджера с @-упоминанием", () => {
+  const lines = buildManagerLines([
+    { manager_name: "Shogher", username: "Manageronebusiness", total: 5 },
+    { manager_name: "Ripsime OneBusiness", username: "onebusiness_sale", total: 3 },
+  ]);
+  assert.deepEqual(lines, [
+    "У Shogher проблемных чатов - 5 @Manageronebusiness",
+    "У Ripsime OneBusiness проблемных чатов - 3 @onebusiness_sale",
+  ]);
+});
+
+test("buildManagerLines: назначенный менеджер без username — без @-упоминания", () => {
+  const lines = buildManagerLines([
+    { manager_name: "Gor One Business", username: null, total: 4, assigned: true },
+  ]);
+  assert.deepEqual(lines, ["У Gor One Business проблемных чатов - 4"]);
+});
+
+test("buildManagerLines: блок без владельца — отдельная формулировка", () => {
+  const lines = buildManagerLines([
+    { manager_name: "Без назначенного менеджера", username: null, total: 4, assigned: false },
+  ]);
+  assert.deepEqual(lines, ["Без назначенного менеджера - 4 проблемных чатов"]);
+});
+
+test("buildManagerLines: пусто/undefined — пустой массив", () => {
+  assert.deepEqual(buildManagerLines([]), []);
+  assert.deepEqual(buildManagerLines(null), []);
+  assert.deepEqual(buildManagerLines(undefined), []);
+});
+
+test("сводка начинается со строк по менеджерам, затем агрегат", () => {
+  const msg = buildMessage(
+    { total_chats: 727, total_problems: 8, missing_accountant: 3, missing_head_accountant: 4, missing_manager: 4 },
+    "https://dash.example",
+    null,
+    [
+      { manager_name: "Shogher", username: "Manageronebusiness", total: 5 },
+      { manager_name: "Ripsime OneBusiness", username: "onebusiness_sale", total: 3 },
+    ],
+  );
+  const lines = msg.split("\n");
+  assert.equal(lines[0], "У Shogher проблемных чатов - 5 @Manageronebusiness");
+  assert.equal(lines[1], "У Ripsime OneBusiness проблемных чатов - 3 @onebusiness_sale");
+  // Пустая строка-разделитель, затем прежний агрегат.
+  assert.match(msg, /У нас есть 8 проблемных чатов, из которых:/);
+  assert.match(msg, /3 без бухгалтера/);
+});
+
+test("без byManager сводка сохраняет прежний формат (обратная совместимость)", () => {
+  const msg = buildMessage(
+    { total_chats: 727, total_problems: 8, missing_accountant: 3, missing_head_accountant: 4, missing_manager: 4 },
+    "https://dash.example",
+  );
+  assert.match(msg, /^У нас есть 8 проблемных чатов, из которых:/);
+  assert.doesNotMatch(msg, /проблемных чатов - /);
 });
 
 // Полное сообщение больше не содержит отдельного блока «Доп. информация» —

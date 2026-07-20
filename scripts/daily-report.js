@@ -36,7 +36,29 @@ function log(level, event, fields = {}) {
   else console.log(line);
 }
 
-export function buildMessage(counts, platformUrl = PLATFORM_URL, clientCounts = null) {
+// Первые строки сводки — деление проблемных чатов по менеджеру-владельцу:
+//   «У Shogher проблемных чатов - 5 @Manageronebusiness»
+//   «У Ripsime OneBusiness проблемных чатов - 3 @onebusiness_sale»
+// @-упоминание добавляем, только если у менеджера есть telegram-username. Чаты
+// без владельца идут строкой «Без назначенного менеджера проблемных чатов - N».
+export function buildManagerLines(byManager) {
+  if (!byManager || !byManager.length) return [];
+  return byManager.map((g) => {
+    // Блок «без владельца» читается естественнее без «У …».
+    if (g.assigned === false) {
+      return `${g.manager_name} - ${g.total} проблемных чатов`;
+    }
+    const mention = g.username ? ` @${g.username}` : "";
+    return `У ${g.manager_name} проблемных чатов - ${g.total}${mention}`;
+  });
+}
+
+export function buildMessage(
+  counts,
+  platformUrl = PLATFORM_URL,
+  clientCounts = null,
+  byManager = null,
+) {
   // Путь «0 проблем» — позитивное сообщение, а не пустой отчёт.
   if (counts.total_problems === 0) {
     // Отдельный случай: реальных чатов вообще нет (например, есть только
@@ -51,13 +73,21 @@ export function buildMessage(counts, platformUrl = PLATFORM_URL, clientCounts = 
     return msg;
   }
 
-  const lines = [
+  const lines = [];
+
+  // Деление по менеджерам-владельцам — первыми строками сводки.
+  const managerLines = buildManagerLines(byManager);
+  if (managerLines.length) {
+    lines.push(...managerLines, "");
+  }
+
+  lines.push(
     `У нас есть ${counts.total_problems} проблемных чатов, из которых:`,
     "",
     `${counts.missing_accountant} без бухгалтера`,
     `${counts.missing_head_accountant} без главного бухгалтера`,
     `${counts.missing_manager} без менеджера`,
-  ];
+  );
   // Две дополнительные метрики из Agreements (mqa_chats) в том же списке.
   if (clientCounts) {
     lines.push(
@@ -140,8 +170,8 @@ function markSent(key) {
 }
 
 async function main() {
-  const { counts } = await getProblemChats();
-  log("info", "report_built", { ...counts });
+  const { counts, byManager } = await getProblemChats();
+  log("info", "report_built", { ...counts, managers: (byManager || []).length });
 
   // Доп. метрики по данным Agreements (mqa_chats) — обязательная часть ПОЛНОЙ
   // сводки: две строки в основном списке (HVHH и чаты активных клиентов).
@@ -153,7 +183,7 @@ async function main() {
   // пробрасывается и крон падает, чтобы проблему было видно, а не замаскировано
   // «старым» форматом. Отправляем только полный, новый формат — либо ничего.
   const checks = await getClientChecks();
-  const message = buildMessage(counts, PLATFORM_URL, checks.counts);
+  const message = buildMessage(counts, PLATFORM_URL, checks.counts, byManager);
   log("info", "client_checks_built", { ...checks.counts });
 
   console.log("---- Daily summary ----\n" + message + "\n-----------------------");

@@ -100,7 +100,7 @@
         color: var(--text);
         font-size: 0.95rem;
       }
-      #sort {
+      #sort, #owner {
         padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
         background: var(--card); color: var(--text); font-size: 0.9rem;
       }
@@ -221,6 +221,10 @@
       <section class="controls">
         <input id="search" type="search" placeholder="Поиск по названию или Chat ID…"
                autocomplete="off" aria-label="Поиск по чатам" />
+        <label class="sr-only" for="owner">Менеджер</label>
+        <select id="owner" aria-label="Фильтр по менеджеру-владельцу">
+          <option value="">Все менеджеры</option>
+        </select>
         <label class="sr-only" for="sort">Сортировка</label>
         <select id="sort" aria-label="Сортировка">
           <option value="missing">Сначала с бо́льшим числом пропусков</option>
@@ -244,7 +248,13 @@
         all: [], notChecked: [], noHvhh: [], noChat: [],
         counts: null, clientCounts: null,
         filters: new Set(), search: "", sort: "missing", view: "problems",
+        owner: "", // "" = все; "__none__" = без назначенного менеджера
       };
+
+      // Значение фильтра для чата без владельца (совпадает с бэкендом).
+      const UNASSIGNED_OWNER = "__none__";
+      const ownerKeyOf = (c) =>
+        (c.owner_manager_name || "").trim().toLowerCase() || UNASSIGNED_OWNER;
 
       const el = (id) => document.getElementById(id);
 
@@ -319,13 +329,14 @@
               : [c.chat_name, c.chat_id].filter(Boolean).join(" ").toLowerCase();
             if (!hay.includes(q)) return false;
           }
-          // Фильтры по ролям применяются только к проблемным чатам.
+          // Фильтры по ролям и по менеджеру-владельцу — только к проблемным чатам.
           if (state.view === "problems") {
             for (const f of state.filters) {
               if (f === "accountant" && !c.missing_accountant) return false;
               if (f === "head_accountant" && !c.missing_head_accountant) return false;
               if (f === "manager" && !c.missing_manager) return false;
             }
+            if (state.owner && ownerKeyOf(c) !== state.owner) return false;
           }
           return true;
         });
@@ -402,6 +413,15 @@
           sub.className = "sub";
           sub.textContent = subText;
           left.appendChild(sub);
+        }
+
+        // Менеджер-владелец чата (если определён) — контекст для фильтра.
+        if (c.owner_manager_name) {
+          const mgr = document.createElement("div");
+          mgr.className = "sub";
+          mgr.textContent = "Менеджер: " + c.owner_manager_name +
+            (c.owner_manager_username ? " (@" + c.owner_manager_username + ")" : "");
+          left.appendChild(mgr);
         }
 
         const tags = document.createElement("div");
@@ -531,9 +551,9 @@
           toLine = (c) => [c.client, c.agr_no, c.hvhh, c.accountant, c.manager, missingLabel];
           fileName = state.view === "no_hvhh" ? "no-hvhh.csv" : "no-chat.csv";
         } else {
-          header = ["Чат", "Chat ID", "Нет бухгалтера", "Нет гл. бухгалтера", "Нет менеджера", "Проверено"];
+          header = ["Чат", "Chat ID", "Менеджер", "Нет бухгалтера", "Нет гл. бухгалтера", "Нет менеджера", "Проверено"];
           toLine = (c) => [
-            c.chat_name, c.chat_id,
+            c.chat_name, c.chat_id, c.owner_manager_name || "",
             yn(c.missing_accountant), yn(c.missing_head_accountant), yn(c.missing_manager),
             c.checked_at,
           ];
@@ -552,6 +572,48 @@
         toast("Экспортировано: " + rows.length);
       }
 
+      // Наполняет фильтр менеджеров из деления по владельцам (by_manager). Если
+      // бэкенд его не прислал — собираем список из самих проблемных чатов.
+      function populateOwners(byManager) {
+        const sel = el("owner");
+        let groups = Array.isArray(byManager) ? byManager.slice() : null;
+        if (!groups) {
+          const map = new Map();
+          for (const c of state.all) {
+            const key = ownerKeyOf(c);
+            if (!map.has(key)) {
+              map.set(key, {
+                key,
+                manager_name: c.owner_manager_name || "Без назначенного менеджера",
+                total: 0,
+              });
+            }
+            map.get(key).total += 1;
+          }
+          groups = [...map.values()];
+        } else {
+          groups = groups.map((g) => ({
+            key: g.assigned ? g.manager_name.trim().toLowerCase() : UNASSIGNED_OWNER,
+            manager_name: g.manager_name,
+            total: g.total,
+          }));
+        }
+
+        // «Все менеджеры» всегда первым; сохраняем текущий выбор, если он ещё есть.
+        const prev = state.owner;
+        sel.innerHTML = '<option value="">Все менеджеры</option>';
+        for (const g of groups) {
+          const opt = document.createElement("option");
+          opt.value = g.key;
+          opt.textContent = g.manager_name + " (" + g.total + ")";
+          sel.appendChild(opt);
+        }
+        if (prev && groups.some((g) => g.key === prev)) sel.value = prev;
+        else { state.owner = ""; sel.value = ""; }
+        // Фильтр по менеджеру осмыслен только в режиме проблемных чатов.
+        sel.hidden = state.view !== "problems";
+      }
+
       async function load() {
         showSkeletons();
         try {
@@ -562,6 +624,7 @@
           state.all = data.chats;
           state.notChecked = data.not_checked || [];
           state.counts = data.counts;
+          populateOwners(data.by_manager);
           el("s-total").textContent = data.counts.total_problems;
           el("s-acc").textContent = data.counts.missing_accountant;
           el("s-head").textContent = data.counts.missing_head_accountant;
@@ -641,6 +704,9 @@
         document.querySelectorAll('.stat[data-filter]').forEach((t) => {
           if (t.dataset.filter !== "total") t.setAttribute("aria-pressed", "false");
         });
+        state.owner = "";
+        const ownerSel = el("owner");
+        if (ownerSel) ownerSel.value = "";
       }
 
       // Единая смена режима: подсветка переключателей + видимость сортировки.
@@ -651,14 +717,16 @@
         document.querySelectorAll('.stat[data-view]').forEach((t) => {
           t.setAttribute("aria-pressed", String(t.dataset.view === v));
         });
-        // Сортировка по числу пропусков осмысленна только для проблемных чатов.
+        // Сортировка и фильтр по менеджеру осмысленны только для проблемных чатов.
         el("sort").hidden = v !== "problems";
+        el("owner").hidden = v !== "problems";
         updateFooterMeta();
       }
 
       // --- Обработчики ---
       el("search").addEventListener("input", (e) => { state.search = e.target.value; render(); });
       el("sort").addEventListener("change", (e) => { state.sort = e.target.value; render(); });
+      el("owner").addEventListener("change", (e) => { state.owner = e.target.value; render(); });
       el("refresh").addEventListener("click", load);
       el("csv").addEventListener("click", toCsv);
       el("logout").addEventListener("click", async () => {

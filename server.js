@@ -306,7 +306,7 @@ app.use(requireAuth, ticketGate);
 const apiLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 app.get("/api/problem-chats", apiLimiter, async (_req, res) => {
   try {
-    const { problems, notChecked, counts } = await getProblemChats();
+    const { problems, notChecked, counts, byManager } = await getProblemChats();
 
     // Доп. метрики из Agreements (mqa_chats) — ровно те же две цифры, что и в
     // ежедневной Telegram-сводке (getClientChecks): «нет HVHH в Agreements» и
@@ -331,6 +331,7 @@ app.get("/api/problem-chats", apiLimiter, async (_req, res) => {
       ok: true,
       counts,
       chats: problems,
+      by_manager: byManager || [],
       not_checked: notChecked || [],
       client_checks: clientChecks,
       client_checks_error: clientChecksError,

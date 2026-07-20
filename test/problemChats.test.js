@@ -3,7 +3,12 @@
 //   { chat_id, chat_name, has_accountant, has_head_accountant, has_manager }.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeProblems, isTestChat } from "../lib/problemChats.js";
+import {
+  computeProblems,
+  isTestChat,
+  groupProblemsByManager,
+  UNASSIGNED_MANAGER,
+} from "../lib/problemChats.js";
 
 // Хелпер: acc/head/mgr — булевы флаги НАЛИЧИЯ ответственного (true = есть).
 // checked по умолчанию true (чат реально проверялся).
@@ -164,6 +169,82 @@ test("checked отсутствует в строке — считается пр
   assert.equal(counts.total_chats, 1);
   assert.equal(counts.not_checked, 0);
   assert.equal(counts.total_problems, 1);
+});
+
+// --- Владелец чата: owner-поля прокидываются в проблемные чаты ---
+test("owner-поля владельца прокидываются из строки вью в проблемный чат", () => {
+  const { problems } = computeProblems([
+    chat("c", {
+      acc: false,
+      owner_manager_id: "e1",
+      owner_manager_name: "Shogher",
+      owner_manager_username: "Manageronebusiness",
+    }),
+  ]);
+  assert.equal(problems[0].owner_manager_name, "Shogher");
+  assert.equal(problems[0].owner_manager_username, "Manageronebusiness");
+  assert.equal(problems[0].owner_manager_id, "e1");
+});
+
+// --- Группировка проблемных чатов по менеджеру ---
+function pchat(owner, username, miss = { acc: false }) {
+  return {
+    missing_accountant: !!miss.acc,
+    missing_head_accountant: !!miss.head,
+    missing_manager: !!miss.mgr,
+    owner_manager_name: owner,
+    owner_manager_username: username,
+  };
+}
+
+test("группировка: по одному блоку на менеджера, счётчики и роли", () => {
+  const groups = groupProblemsByManager([
+    pchat("Shogher", "Manageronebusiness", { acc: true }),
+    pchat("Shogher", "Manageronebusiness", { head: true }),
+    pchat("Ripsime OneBusiness", "onebusiness_sale", { mgr: true }),
+  ]);
+  assert.equal(groups.length, 2);
+  // Shogher первым — у него больше чатов (2 против 1).
+  assert.equal(groups[0].manager_name, "Shogher");
+  assert.equal(groups[0].total, 2);
+  assert.equal(groups[0].username, "Manageronebusiness");
+  assert.equal(groups[0].missing_accountant, 1);
+  assert.equal(groups[0].missing_head_accountant, 1);
+  assert.equal(groups[1].manager_name, "Ripsime OneBusiness");
+  assert.equal(groups[1].total, 1);
+  assert.equal(groups[1].missing_manager, 1);
+});
+
+test("группировка: несколько аккаунтов одного менеджера сводятся в один блок", () => {
+  // У Ripsime два telegram-аккаунта; основной @-выбирается по числу чатов.
+  const groups = groupProblemsByManager([
+    pchat("Ripsime OneBusiness", "onebusiness_sale"),
+    pchat("Ripsime OneBusiness", "onebusiness_sale"),
+    pchat("Ripsime OneBusiness", "One_Business_sale"),
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].total, 3);
+  assert.equal(groups[0].username, "onebusiness_sale"); // основной аккаунт (2 из 3)
+});
+
+test("группировка: чаты без владельца собираются в блок без менеджера и идут в конце", () => {
+  const groups = groupProblemsByManager([
+    pchat(null, null),
+    pchat("Shogher", "Manageronebusiness"),
+    pchat("", ""),
+  ]);
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].manager_name, "Shogher");
+  const last = groups[groups.length - 1];
+  assert.equal(last.manager_name, UNASSIGNED_MANAGER);
+  assert.equal(last.assigned, false);
+  assert.equal(last.total, 2);
+  assert.equal(last.username, null);
+});
+
+test("группировка: пустой ввод не падает", () => {
+  assert.deepEqual(groupProblemsByManager([]), []);
+  assert.deepEqual(groupProblemsByManager(null), []);
 });
 
 // Регрессия: воспроизводим точные вердикты из реального отчёта (по флагам вью).
