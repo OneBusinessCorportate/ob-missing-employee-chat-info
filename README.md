@@ -235,6 +235,26 @@ them (via the view) and never writes. To change what shows up:
   `chat_employee_presence` row for that `chat_id` with the right `employee_role`
   and `is_present = true`.
 
+### Manual corrections (overrides)
+
+For one-off QA fixes that the pipeline can't express, two manual tables feed the
+view (see `sql/008_head_accountant_absent_and_nonexistent_chats.sql`):
+
+- **`public.chat_responsibility_overrides`** `(chat_id, role, status, note,
+  updated_by)` — per-chat, per-role override. `status`:
+  - `present` — force the role as filled (responsible confirmed manually);
+  - `not_required` — the role isn't needed in this chat (won't be flagged);
+  - `absent` — force the role as **missing** for this chat. This is how a chat
+    shows "Нет главного бухгалтера" even though the head accountant is otherwise
+    treated **company-wide**: a `head_accountant`/`absent` override means "the
+    head accountant is not in *this* chat" and overrides the company-wide default.
+- **`public.nonexistent_chats`** `(chat_id, chat_name, note, updated_by)` — chats
+  that no longer physically exist in Telegram. Mark the chat
+  `excluded_from_qa = true` (drops it from the checklist) **and** add a row here;
+  the dashboard/daily summary then list it under **"нет чатов у активных
+  клиентов"** (via `public.v_nonexistent_chats`, merged into the no-chat list in
+  `lib/clientChecks.js`).
+
 ## Refreshing presence via a Telegram **user account** (phone login)
 
 The presence data (`chat_employee_presence`) was originally filled by a **bot**

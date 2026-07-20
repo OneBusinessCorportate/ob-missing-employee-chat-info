@@ -4,7 +4,12 @@
 //     accountant, manager }.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeClientChecks, clientLabel } from "../lib/clientChecks.js";
+import {
+  computeClientChecks,
+  clientLabel,
+  nonexistentToNoChat,
+  mergeNonexistentNoChat,
+} from "../lib/clientChecks.js";
 
 // Хелпер: по умолчанию — «здоровый» активный клиент (все поля заполнены).
 function client(over = {}) {
@@ -148,4 +153,42 @@ test("пустой ввод не падает", () => {
   const empty = computeClientChecks([]);
   assert.equal(empty.counts.total_active, 0);
   assert.equal(computeClientChecks(null).counts.no_responsible, 0);
+});
+
+// --- Несуществующие чаты добавляются в «нет чатов» ---
+test("nonexistentToNoChat формирует строку списка «нет чатов»", () => {
+  const row = nonexistentToNoChat({
+    chat_id: -1003949180777,
+    chat_name: "Горц Ап",
+    note: "нет в Telegram",
+  });
+  assert.equal(row.client, "Горц Ап");
+  assert.equal(row.chat_id, "-1003949180777");
+  assert.equal(row.missing, "Telegram chat");
+  assert.equal(row.client_type, "monthly");
+});
+
+test("mergeNonexistentNoChat добавляет чаты в noChat и увеличивает счётчик", () => {
+  const base = computeClientChecks([client({ chat_link: null, agr_no: "B-9" })]);
+  assert.equal(base.counts.no_chat, 1);
+  const merged = mergeNonexistentNoChat(base, [
+    { chat_id: -1003949180777, chat_name: "Горц Ап", note: null },
+    { chat_id: -5184209470, chat_name: "Mail АЕОН Девелопмент", note: null },
+  ]);
+  assert.equal(merged.counts.no_chat, 3);
+  assert.ok(merged.noChat.some((r) => r.client === "Горц Ап"));
+  assert.ok(merged.noChat.some((r) => r.client === "Mail АЕОН Девелопмент"));
+});
+
+test("mergeNonexistentNoChat не дублирует один и тот же chat_id", () => {
+  const base = computeClientChecks([]);
+  const rows = [{ chat_id: -5184209470, chat_name: "АЕОН", note: null }];
+  const once = mergeNonexistentNoChat(base, rows);
+  const twice = mergeNonexistentNoChat(once, rows);
+  assert.equal(twice.counts.no_chat, 1);
+});
+
+test("mergeNonexistentNoChat без строк возвращает исходный результат", () => {
+  const base = computeClientChecks([client({ chat_link: null })]);
+  assert.equal(mergeNonexistentNoChat(base, []).counts.no_chat, 1);
 });
