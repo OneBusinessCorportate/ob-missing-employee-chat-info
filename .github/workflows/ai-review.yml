@@ -1,0 +1,37 @@
+name: ai-review
+
+# Второй ключ: кросс-модельный ревьюер (GPT) на каждый PR в main.
+# БЕЗОПАСНОСТЬ: триггер pull_request_target — воркфлоу и скрипт берутся из ДОВЕРЕННОЙ ветки (main),
+# а НЕ из PR. Мы НЕ делаем checkout кода PR и НЕ исполняем его: скрипт лишь читает diff через API.
+# Поэтому секрет OPENAI_API_KEY и write-токен недоступны изменяемому PR-коду.
+# Ставит обязательный статус codex-review: REQUEST_CHANGES -> failure; иначе success.
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      # Доверенная база (main), НЕ код PR — checkout запинен к SHA.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Cross-model review (GPT)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/review/ai_review.py
