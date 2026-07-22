@@ -79,6 +79,10 @@
       .banner { background: var(--danger-bg); color: var(--danger-text); border-radius: 10px; padding: 8px 12px; font-size: 0.82rem; margin: 10px 0; }
       .gap { background: var(--warn-bg); color: var(--warn-text); border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; margin: 8px 0; }
       .muted { color: var(--muted); }
+      .explain { background: var(--accent-weak); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 12px 0 4px; font-size: 0.9rem; }
+      .explain p { margin: 6px 0 0; }
+      .legend { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+      .legend b { color: var(--text); }
       @media (max-width: 760px) { .stats { grid-template-columns: repeat(2, 1fr); } }
     </style>
   </head>
@@ -87,7 +91,7 @@
       <div class="topbar">
         <header>
           <h1>Контроль количества клиентов</h1>
-          <p>Сравнение ВСЕХ компаний из всех источников: Agreements (ИНН/HVHH + исключения), One Business, лист «Чаты», выгрузка аккаунта и живые данные Supabase (боте / v_mqa_active).</p>
+          <p>Сверяем наши списки клиентов из разных мест и показываем, у кого нет чата в Telegram или нет нашего бота — чтобы ни один клиент не потерялся.</p>
           <p class="meta" id="meta">Загрузка…</p>
         </header>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -96,60 +100,72 @@
         </div>
       </div>
 
+      <div class="explain">
+        <b>Что это за страница?</b>
+        <p>Один и тот же клиент может быть записан сразу в нескольких местах: в договорах,
+        в таблице One Business, в листе «Чаты» и в нашей рабочей системе. Мы собираем все эти
+        списки вместе и сравниваем их, чтобы увидеть общую картину: сколько у нас клиентов,
+        все ли активные клиенты общаются с нами в Telegram и везде ли добавлен наш бот.</p>
+        <p class="muted" style="margin-bottom:0;">Читайте страницу сверху вниз: сначала общие цифры,
+        затем — конкретные клиенты, с которыми нужно что-то сделать. Ничего не изменяется —
+        страница только показывает данные.</p>
+      </div>
+
       <div id="liveErr"></div>
 
       <!-- 1 + 2: итоги по источникам -->
-      <h2>1. Итоги по источникам <span class="n">— общее количество записей везде</span></h2>
-      <p class="hint">Сколько записей в каждом источнике и сколько из них активных / неактивных (исключения).</p>
+      <h2>1. Сколько клиентов в каждом списке <span class="n">— общие цифры</span></h2>
+      <p class="hint">В каждом из наших списков — сколько всего клиентов, сколько из них сейчас работают с нами (активные) и сколько уже нет (неактивные).</p>
       <div class="tablewrap">
         <table id="sourcesTable">
-          <thead><tr><th>Источник</th><th class="num-cell">Всего</th><th class="num-cell">Активные</th><th class="num-cell">Неактивные / искл.</th></tr></thead>
+          <thead><tr><th>Список (источник)</th><th class="num-cell">Всего</th><th class="num-cell">Активные</th><th class="num-cell">Неактивные</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div id="gap" class="gap" hidden></div>
 
       <!-- Разбивка универсума -->
-      <h2>2. Все компании: разбивка <span class="n" id="uniN"></span></h2>
-      <p class="hint">Объединённый список всех компаний из всех источников (склейка по HVHH и № договора). Нажмите на карточку — отфильтруется общая таблица внизу.</p>
+      <h2>2. Все клиенты по статусу <span class="n" id="uniN"></span></h2>
+      <p class="hint">Все клиенты из всех списков, объединённые в один общий список (одинаковые клиенты не считаются дважды). Нажмите на любую карточку — внизу откроется список этих клиентов.</p>
       <div class="stats" id="classStats"></div>
 
       <!-- 3: активные vs не можем найти -->
-      <h2>3. Активные: где чат? <span class="n">— сравнение активных и тех, кого не можем найти</span></h2>
-      <p class="hint">Только эффективно активные клиенты. «Не можем найти» — нет чата ни в одном источнике или общение вне Telegram (WhatsApp / mail).</p>
+      <h2>3. У всех ли активных клиентов есть чат? <span class="n">— и где именно</span></h2>
+      <p class="hint">Только те клиенты, кто сейчас работает с нами. Показываем, у кого всё в порядке, а у кого чат не найден или общение идёт не в Telegram (WhatsApp / почта). Нажмите на карточку, чтобы увидеть список.</p>
       <div class="stats" id="bucketStats"></div>
 
       <!-- 4: план действий -->
-      <h2>4. План действий <span class="n" id="actionN"></span></h2>
-      <p class="hint">По каждому проблемному активному клиенту: где искать и что делать. Отфильтруйте по типу проблемы, выгрузите в CSV.</p>
+      <h2>4. Что нужно сделать <span class="n" id="actionN"></span></h2>
+      <p class="hint">Список активных клиентов, с которыми есть проблема. Для каждого написано, где его искать и что сделать. Можно отфильтровать по типу проблемы и скачать таблицу (кнопка «Экспорт CSV» — сохранит файл для Excel).</p>
       <div class="controls">
         <input type="search" id="actionSearch" placeholder="Поиск: имя, HVHH, договор, бухгалтер…" />
         <select id="actionBucket">
           <option value="">Все проблемы</option>
-          <option value="not_found">Не можем найти</option>
-          <option value="other_channel">WhatsApp / mail</option>
-          <option value="telegram_no_bot">Telegram есть, бота нет</option>
-          <option value="chat_unclear">Статус чата непонятен</option>
+          <option value="not_found">Чат нигде не найден</option>
+          <option value="other_channel">Общаемся не в Telegram (WhatsApp / почта)</option>
+          <option value="telegram_no_bot">Чат есть, но без бота</option>
+          <option value="chat_unclear">Непонятно, где чат</option>
         </select>
         <button class="btn" id="actionCsv">Экспорт CSV</button>
       </div>
       <div class="tablewrap">
         <table id="actionTable">
-          <thead><tr><th>Компания</th><th>HVHH</th><th>Договор</th><th>Бухгалтер</th><th>Тип</th><th>Где искать</th><th>Что делать</th></tr></thead>
+          <thead><tr><th>Клиент</th><th>HVHH (налог. номер)</th><th>№ договора</th><th>Бухгалтер</th><th>Проблема</th><th>Где искать</th><th>Что делать</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
 
       <!-- Сообщение для Гарри -->
-      <h2>Промежуточно — Гарри</h2>
+      <h2>Готовое сообщение <span class="n">— для Гарри, можно скопировать</span></h2>
+      <p class="hint">Короткая сводка по проблемам одним сообщением. Нажмите кнопку — текст скопируется, и его можно вставить в чат.</p>
       <div class="harry">
         <button class="btn" id="copyHarry">Скопировать сообщение</button>
         <pre id="harry"></pre>
       </div>
 
       <!-- 5: чаты у менеджеров без бота -->
-      <h2>5. Чаты на аккаунте без бота <span class="n" id="noBotN"></span></h2>
-      <p class="hint">Из выгрузки аккаунта Эмилии / менеджеров: чаты, которые есть на аккаунте, но в которых НЕТ бота — их нужно добавить в бота.</p>
+      <h2>5. Чаты, в которые нужно добавить бота <span class="n" id="noBotN"></span></h2>
+      <p class="hint">Эти чаты есть у менеджеров, но нашего бота в них нет. Бота нужно добавить, иначе мы не видим, что происходит в чате.</p>
       <div class="controls">
         <input type="search" id="noBotSearch" placeholder="Поиск по названию чата…" />
         <button class="btn" id="noBotCsv">Экспорт CSV</button>
@@ -162,26 +178,29 @@
       </div>
 
       <!-- 6: полная таблица сравнения -->
-      <h2>6. Полное сравнение <span class="n" id="allN"></span></h2>
-      <p class="hint">Все компании из всех источников. Галочки показывают, в каких источниках есть компания.</p>
+      <h2>6. Полный список всех клиентов <span class="n" id="allN"></span></h2>
+      <p class="hint">Все клиенты из всех списков в одной таблице. Галочка ✓ в последних столбцах показывает, в каком именно списке есть этот клиент.</p>
+      <p class="hint legend">Что означают столбцы со списками:
+        <b>Дог.</b> — договоры · <b>OB</b> — таблица One Business · <b>Чаты</b> — лист «Чаты» ·
+        <b>Система</b> — наши живые рабочие данные · <b>Отказ</b> — отказавшиеся клиенты.</p>
       <div class="controls">
-        <input type="search" id="allSearch" placeholder="Поиск: имя, HVHH, договор…" />
+        <input type="search" id="allSearch" placeholder="Поиск: имя, HVHH, № договора…" />
         <select id="allClass">
           <option value="">Все статусы</option>
           <option value="active">Активные</option>
           <option value="inactive">Неактивные</option>
           <option value="refusenik">Отказники</option>
           <option value="exception">Исключения</option>
-          <option value="once">Once</option>
-          <option value="bad_debts">Bad debts</option>
+          <option value="once">Разовые</option>
+          <option value="bad_debts">Должники</option>
           <option value="unknown">Непонятно</option>
         </select>
         <select id="allSource">
-          <option value="">Любой источник</option>
-          <option value="agreements">Agreements</option>
+          <option value="">Любой список</option>
+          <option value="agreements">Договоры</option>
           <option value="onebusiness">One Business</option>
-          <option value="chats_sheet">Чаты</option>
-          <option value="mqa">Supabase (mqa)</option>
+          <option value="chats_sheet">Лист «Чаты»</option>
+          <option value="mqa">Наша система</option>
           <option value="refuseniks">Отказники</option>
         </select>
         <button class="btn" id="allCsv">Экспорт CSV</button>
@@ -189,8 +208,8 @@
       <div class="tablewrap">
         <table id="allTable">
           <thead><tr>
-            <th>Компания</th><th>HVHH</th><th>Договор</th><th>Статус</th><th>Чат / канал</th><th>Бот</th>
-            <th title="Agreements">A</th><th title="One Business">OB</th><th title="Чаты">Ч</th><th title="Supabase mqa">S</th><th title="Отказники">О</th>
+            <th>Клиент</th><th>HVHH (налог. номер)</th><th>№ договора</th><th>Статус</th><th>Чат / канал</th><th>Бот</th>
+            <th title="Договоры">Дог.</th><th title="One Business">OB</th><th title="Лист «Чаты»">Чаты</th><th title="Наша система">Система</th><th title="Отказники">Отказ</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -199,18 +218,18 @@
     </div>
 
     <script>
-      const SRC_LABEL = { agreements: "A", onebusiness: "OB", chats_sheet: "Ч", mqa: "S", refuseniks: "О" };
+      const SRC_LABEL = { agreements: "Договоры", onebusiness: "One Business", chats_sheet: "Чаты", mqa: "Система", refuseniks: "Отказ" };
       const CLASS_LABEL = {
         active: "Активные", inactive: "Неактивные", refusenik: "Отказники",
-        exception: "Исключения", once: "Once", bad_debts: "Bad debts", unknown: "Непонятно",
+        exception: "Исключения", once: "Разовые", bad_debts: "Должники", unknown: "Непонятно",
       };
       const BUCKET_LABEL = {
-        in_bot: "В боте (ОК)", telegram_no_bot: "Telegram есть, бота нет",
-        other_channel: "WhatsApp / mail", chat_unclear: "Статус непонятен", not_found: "Не можем найти",
+        in_bot: "Всё хорошо — бот в чате", telegram_no_bot: "Чат есть, но без бота",
+        other_channel: "Не в Telegram (WhatsApp / почта)", chat_unclear: "Непонятно, где чат", not_found: "Чат нигде не найден",
       };
       const CHANNEL_LABEL = {
-        telegram: "Telegram", whatsapp: "WhatsApp", mail: "mail",
-        none: "нет", not_working: "не работаем", other_text: "прочее",
+        telegram: "Telegram", whatsapp: "WhatsApp", mail: "почта",
+        none: "нет чата", not_working: "не работаем", other_text: "другое",
       };
       let DATA = null;
 
@@ -266,10 +285,10 @@
         if (agr && (mqa || ch)) {
           el("gap").hidden = false;
           el("gap").innerHTML =
-            `Разрыв в количестве активных: Agreements — <b>${agr.active}</b>` +
-            (mqa && mqa.total ? `, живые в Supabase (v_mqa_active) — <b>${mqa.total}</b>` : "") +
-            (ch ? `, привязано к чату (лист «Чаты») — <b>${ch.active}</b>` : "") +
-            `. Именно этот разрыв разбирается ниже.`;
+            `Цифры активных не совпадают между списками: по договорам — <b>${agr.active}</b>` +
+            (mqa && mqa.total ? `, в нашей системе — <b>${mqa.total}</b>` : "") +
+            (ch ? `, с привязанным чатом — <b>${ch.active}</b>` : "") +
+            `. Ниже разбираемся, из-за кого эта разница.`;
         }
 
         // 2. Разбивка универсума
@@ -315,7 +334,7 @@
         renderAll();
 
         el("footer").textContent =
-          "Источники: снимки xlsx в data/recon + живые таблицы OB FAQ Supabase (v_mqa_active, chats). Ничего не записывается — только чтение.";
+          "Данные берутся из наших таблиц (договоры, One Business, лист «Чаты») и из рабочей системы. Страница ничего не меняет — только показывает.";
       }
 
       function renderActions() {
@@ -392,7 +411,7 @@
         });
       });
       el("actionCsv").addEventListener("click", () => {
-        const head = ["Компания", "HVHH", "Договор", "Бухгалтер", "Тип", "Где искать", "Что делать"];
+        const head = ["Клиент", "HVHH (налог. номер)", "№ договора", "Бухгалтер", "Проблема", "Где искать", "Что делать"];
         const body = DATA.action_rows.map((r) => [r.label || r.name, r.hvhh, r.agr_no, r.accountant, BUCKET_LABEL[r.bucket] || r.bucket, r.action.where, r.action.what]);
         downloadCsv("client-action-plan.csv", [head, ...body]);
       });
@@ -402,7 +421,7 @@
         downloadCsv("chats-without-bot.csv", [head, ...body]);
       });
       el("allCsv").addEventListener("click", () => {
-        const head = ["Компания", "HVHH", "Договор", "Статус", "Канал", "Бот", "Источники"];
+        const head = ["Клиент", "HVHH (налог. номер)", "№ договора", "Статус", "Чат / канал", "Бот", "Где есть запись"];
         const body = DATA.all_companies.map((r) => [r.label || r.name, r.hvhh, r.agr_no, CLASS_LABEL[r.status_class] || r.status_class, CHANNEL_LABEL[r.chat_channel] || r.chat_channel, r.bot_status, (r.sources || []).map((s) => SRC_LABEL[s] || s).join("+")]);
         downloadCsv("all-companies-comparison.csv", [head, ...body]);
       });
