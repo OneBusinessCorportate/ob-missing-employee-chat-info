@@ -1,0 +1,43 @@
+name: doc-sync
+
+# Коммит-gate: PR, меняющий код, обязан в ТОМ ЖЕ PR нести запись в CHANGELOG.md.
+# Жёсткий режим — защита ветки main с required-check «changelog».
+# Форточка: метка PR `skip-changelog` — для заведомо тривиальных правок.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require CHANGELOG entry for code changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+          if printf ',%s,' "$LABELS" | grep -q ',skip-changelog,'; then
+            echo "Метка 'skip-changelog' — проверка пропущена (тривиальная правка)."
+            exit 0
+          fi
+          FILES=$(git diff --name-only "$BASE...$HEAD")
+          echo "Изменённые в PR файлы:"; echo "$FILES" | sed 's/^/  /'
+          CODE=$(echo "$FILES" | grep -vE '^(docs/|\.github/|[^/]*\.md$)' || true)
+          if [ -z "$CODE" ]; then
+            echo "Менялись только доки/CI — запись в журнал не требуется."
+            exit 0
+          fi
+          if echo "$FILES" | grep -qx 'CHANGELOG.md'; then
+            echo "✓ Изменения кода сопровождены записью в CHANGELOG.md."
+            exit 0
+          fi
+          echo "::error::Изменён код, но CHANGELOG.md не обновлён. Добавь запись (что / зачем / результат) или поставь метку 'skip-changelog' для тривиальной правки."
+          exit 1
