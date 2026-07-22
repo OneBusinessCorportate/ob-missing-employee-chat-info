@@ -127,3 +127,27 @@ on conflict (chat_id, role) do update set status = excluded.status, note = exclu
 insert into public.chat_responsibility_overrides (chat_id, role, status, note, updated_by)
 values (-5129318584, 'manager', 'present', 'B-4896 Евгений Каличенко: менеджер Shogher', 'info@onebusiness.am')
 on conflict (chat_id, role) do update set status = excluded.status, note = excluded.note, updated_by = excluded.updated_by, updated_at = now();
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Backfill HVHH из колонки HVHH (Agreements / налоговая) для активных клиентов,
+-- у которых в mqa_chats ИНН пуст. Значения взяты по номеру договора из книги
+-- Agreements. Клиенты, для которых HVHH в книге тоже отсутствует (прочерк),
+-- сознательно НЕ добавляются — они остаются в списке «нет HVHH».
+insert into public.mqa_chat_corrections (agr_no, hvhh, note, updated_by) values
+  ('B-4145','23358147','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4452','73201423','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4809','00919987','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4816','08274346','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4817','20312405','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4818','20311629','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4825','20325357','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4830','49805996','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4832','01346533','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4847','20332997','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4864','02945183','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4875','02951864','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4804','20319229','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4821','20322621','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('B-4805','02307164','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am'),
+  ('ООО Хойя Плейс/ B-4233 RU','08269432','HVHH из колонки HVHH (Agreements/налоговая)','info@onebusiness.am')
+on conflict (agr_no) do update set hvhh = excluded.hvhh, note = excluded.note, updated_by = excluded.updated_by, updated_at = now();
