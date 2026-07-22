@@ -255,6 +255,24 @@ view (see `sql/008_head_accountant_absent_and_nonexistent_chats.sql`):
   клиентов"** (via `public.v_nonexistent_chats`, merged into the no-chat list in
   `lib/clientChecks.js`).
 
+For the **Agreements** blocks (нет чатов / нет HVHH / без ответственных, built
+from `public.mqa_chats` via `public.v_mqa_active`) there is a third table
+(see `sql/009_mqa_chat_corrections.sql`):
+
+- **`public.mqa_chat_corrections`** `(agr_no, chat_link, hvhh, accountant,
+  manager, excluded, note, updated_by)` — per-agreement overlay for clients whose
+  chat link / HVHH / responsibles were never carried into Agreements. `v_mqa_active`
+  `LEFT JOIN`s it on `agr_no` and `COALESCE`s each field, so a non-empty correction
+  wins over `mqa_chats` (whose external sync is never touched). Use it to:
+  - **remove a client from "нет чатов"** — set `chat_link` to the real Telegram link;
+  - **remove a client from "нет HVHH"** — set `hvhh`;
+  - **remove a client from "без ответственных"** — set `accountant` / `manager`;
+  - **drop a client from the dashboard entirely** — set `excluded = true` (e.g. the
+    chat lives on WhatsApp, not Telegram). Excluded rows are filtered out of
+    `v_mqa_active`.
+  Because the overlay lives in the view, corrections apply to the already-deployed
+  dashboard immediately and survive a rebuild of `mqa_chats`.
+
 ## Refreshing presence via a Telegram **user account** (phone login)
 
 The presence data (`chat_employee_presence`) was originally filled by a **bot**
@@ -445,3 +463,11 @@ A second **additive** migration, `sql/003_ticket_review_gate.sql`, adds the
 tables** and modifies no business data — it only inserts into the existing
 `kk_problem_acknowledgements` / `kk_problem_appeals` workflow tables inside one
 transaction, and `EXECUTE` is restricted to `service_role`.
+
+Later additive migrations (`sql/004`–`sql/009`) refine the responsibles view
+(company-wide head accountant, assignment-aware detection, chat owner/manager)
+and add the manual-correction tables. `sql/009_mqa_chat_corrections.sql` adds
+`public.mqa_chat_corrections` and overlays it into `public.v_mqa_active`
+(`LEFT JOIN` + `COALESCE`, plus an `excluded` filter) so per-client Agreements
+fixes — real chat link, HVHH, responsibles, or dropping a WhatsApp-only client —
+apply without touching `mqa_chats`. See *Manual corrections (overrides)* above.
