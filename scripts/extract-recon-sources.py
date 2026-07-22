@@ -143,9 +143,12 @@ def main():
     recs = []
     for r in data:
         nm, hv, no = s(get(r, i_nm)), norm_hvhh(get(r, i_hv)), norm_agr(get(r, i_no))
-        if not (nm or hv or no):
+        tn = s(get(r, i_tn))
+        # Keep the row if it has ANY identifier — incl. a tax name only (so
+        # clients without HVHH/agreement/client-name are not lost).
+        if not (nm or hv or no or tn):
             continue
-        recs.append({"agr_no": no, "client_name": nm, "hvhh": hv, "tax_name": s(get(r, i_tn)),
+        recs.append({"agr_no": no, "client_name": nm, "hvhh": hv, "tax_name": tn,
                      "status": s(get(r, i_st)), "accountant": s(get(r, i_ac)),
                      "monthly_fee": s(get(r, i_fee))})
     counts["onebusiness"] = dump(out, "onebusiness", recs)
