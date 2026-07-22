@@ -329,7 +329,7 @@
         el("actionN").textContent = "— " + rows.length + " клиентов к разбору";
         el("actionTable").querySelector("tbody").innerHTML =
           rows.map((r) => `<tr>
-            <td class="wrap-cell">${esc(r.name || "—")}</td>
+            <td class="wrap-cell">${esc(r.label || r.name || "—")}</td>
             <td>${esc(r.hvhh || "—")}</td>
             <td>${esc(r.agr_no || "—")}</td>
             <td>${esc(r.accountant || "—")}</td>
@@ -344,7 +344,7 @@
         const rows = DATA.manager_chats_no_bot.filter((r) => !q || (r.chat_name || "").toLowerCase().includes(q));
         el("noBotTable").querySelector("tbody").innerHTML =
           rows.map((r) => `<tr>
-            <td class="wrap-cell">${esc(r.chat_name || "—")}</td>
+            <td class="wrap-cell">${esc(r.label || r.chat_name || "—")}</td>
             <td>${esc(r.chat_id || "—")}</td>
             <td class="wrap-cell">${r.chat_link ? esc(r.chat_link) : "—"}</td></tr>`).join("") ||
           '<tr><td colspan="3" class="muted">Ничего не найдено.</td></tr>';
@@ -364,7 +364,7 @@
         const tick = (r, s) => ((r.sources || []).includes(s) ? "✓" : "");
         el("allTable").querySelector("tbody").innerHTML =
           rows.slice(0, 1500).map((r) => `<tr>
-            <td class="wrap-cell">${esc(r.name || "—")}</td>
+            <td class="wrap-cell">${esc(r.label || r.name || "—")}</td>
             <td>${esc(r.hvhh || "—")}</td>
             <td>${esc(r.agr_no || "—")}</td>
             <td><span class="pill ${r.status_class}">${esc(CLASS_LABEL[r.status_class] || r.status_class)}</span></td>
@@ -393,17 +393,17 @@
       });
       el("actionCsv").addEventListener("click", () => {
         const head = ["Компания", "HVHH", "Договор", "Бухгалтер", "Тип", "Где искать", "Что делать"];
-        const body = DATA.action_rows.map((r) => [r.name, r.hvhh, r.agr_no, r.accountant, BUCKET_LABEL[r.bucket] || r.bucket, r.action.where, r.action.what]);
+        const body = DATA.action_rows.map((r) => [r.label || r.name, r.hvhh, r.agr_no, r.accountant, BUCKET_LABEL[r.bucket] || r.bucket, r.action.where, r.action.what]);
         downloadCsv("client-action-plan.csv", [head, ...body]);
       });
       el("noBotCsv").addEventListener("click", () => {
-        const head = ["Название чата", "Chat ID", "Ссылка"];
-        const body = DATA.manager_chats_no_bot.map((r) => [r.chat_name, r.chat_id, r.chat_link]);
+        const head = ["Название чата (с ID)", "Chat ID", "Ссылка"];
+        const body = DATA.manager_chats_no_bot.map((r) => [r.label || r.chat_name, r.chat_id, r.chat_link]);
         downloadCsv("chats-without-bot.csv", [head, ...body]);
       });
       el("allCsv").addEventListener("click", () => {
         const head = ["Компания", "HVHH", "Договор", "Статус", "Канал", "Бот", "Источники"];
-        const body = DATA.all_companies.map((r) => [r.name, r.hvhh, r.agr_no, CLASS_LABEL[r.status_class] || r.status_class, CHANNEL_LABEL[r.chat_channel] || r.chat_channel, r.bot_status, (r.sources || []).map((s) => SRC_LABEL[s] || s).join("+")]);
+        const body = DATA.all_companies.map((r) => [r.label || r.name, r.hvhh, r.agr_no, CLASS_LABEL[r.status_class] || r.status_class, CHANNEL_LABEL[r.chat_channel] || r.chat_channel, r.bot_status, (r.sources || []).map((s) => SRC_LABEL[s] || s).join("+")]);
         downloadCsv("all-companies-comparison.csv", [head, ...body]);
       });
 

@@ -8,7 +8,42 @@ import {
   botStatusFromIssue,
   normHvhh,
   normName,
+  labelWithId,
 } from "../lib/clientCount.js";
+
+test("labelWithId добавляет ID к названию только когда нет HVHH", () => {
+  assert.equal(labelWithId({ name: "ACME", hvhh: "01234567", agr_no: "10" }), "ACME");
+  assert.equal(labelWithId({ name: "ACME", hvhh: "", agr_no: "1585" }), "ACME [№1585]");
+  assert.equal(labelWithId({ name: "", hvhh: "", agr_no: "1585" }), "№1585");
+});
+
+test("у компаний без HVHH в label есть ID, у чатов без бота — Chat ID", () => {
+  const r = computeClientCount({
+    agreements: [
+      { agr_no: "1585", company: "GREEN LLC", hvhh: "", status: "Active" },
+      { agr_no: "10", company: "ACME", hvhh: "01234567", status: "Active" },
+    ],
+    chatsWithoutBot: [
+      { chat_name: "ИП Иванов", bot_exists: "False", issue_type: "Нет бота", chat_id: "-100500" },
+    ],
+  });
+  const green = r.all_companies.find((c) => c.agr_no === "1585");
+  const acme = r.all_companies.find((c) => c.hvhh === "01234567");
+  assert.equal(green.label, "GREEN LLC [№1585]"); // нет HVHH -> ID в названии
+  assert.equal(acme.label, "ACME"); // есть HVHH -> название без ID
+  assert.equal(r.manager_chats_no_bot[0].label, "ИП Иванов [ID -100500]");
+});
+
+test("строки-мусор без HVHH, договора и имени отбрасываются", () => {
+  const r = computeClientCount({
+    chatsSheet: [
+      { agr_no: "", hvhh: "", name_agr: "-", status: "Active", chat_name: "-", chat_link: "-" },
+      { agr_no: "7", hvhh: "", name_agr: "Real Co", status: "Active", chat_name: "x", chat_link: "https://web.telegram.org/#-7" },
+    ],
+  });
+  assert.equal(r.universe.total, 1); // мусорная строка «-» отброшена
+  assert.equal(r.all_companies[0].name, "Real Co");
+});
 
 test("chatChannel классифицирует ссылку/значение", () => {
   assert.equal(chatChannel("https://web.telegram.org/a/#-100"), "telegram");
