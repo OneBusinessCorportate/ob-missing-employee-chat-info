@@ -24,6 +24,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getProblemChats } from "./lib/problemChats.js";
 import { getClientChecks } from "./lib/clientChecks.js";
+import { getClientCount } from "./lib/clientCount.js";
 import {
   authEnabled,
   checkPassword,
@@ -305,6 +306,28 @@ app.get("/api/problem-chats", apiLimiter, async (_req, res) => {
     });
   } catch (err) {
     console.error("[/api/problem-chats]", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Контроль количества клиентов — сравнение ВСЕХ компаний из всех источников
+// (снимки xlsx в data/recon + живые данные OB FAQ Supabase). Как и дашборд
+// проблемных чатов, страница и её API ОТКРЫТЫ ДЛЯ ВСЕХ (только чтение, ключ
+// Supabase остаётся на сервере). Страница отдаётся до статики, чтобы иметь
+// собственный маршрут.
+// ---------------------------------------------------------------------------
+const clientCountLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
+app.get("/client-count", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "client-count.html"));
+});
+app.get("/api/client-count", clientCountLimiter, async (_req, res) => {
+  try {
+    const data = await getClientCount();
+    res.set("Cache-Control", "no-store");
+    res.json({ ok: true, data });
+  } catch (err) {
+    console.error("[/api/client-count]", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

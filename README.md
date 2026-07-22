@@ -117,6 +117,68 @@ The rest of the report — the responsibles checklist, SLA, filters and AI
 analysis — is **unchanged** apart from the reworded summary line; the `dop info:`
 block is purely appended.
 
+## Контроль количества клиентов (client-count control dashboard)
+
+A second, standalone dashboard at **`/client-count`** (open to everyone, like the
+main one) answers *«Контроль количества клиентов»* — it reconciles **all
+companies from all sources** into one comparison so the count can be controlled
+end-to-end. The master list is **`Agr.list` = HVHH of every client, including
+exceptions/inactive**; every other source is joined onto it.
+
+Sources (committed snapshots in `data/recon/*.jsonl` + live OB FAQ Supabase):
+
+| Source (in the reconciliation)     | Where it comes from                                             |
+| ---------------------------------- | -------------------------------------------------------------- |
+| `agreements`                       | *OB Agreements & Invoices* xlsx → sheet **Agreements** (master HVHH list, incl. inactive) |
+| `onebusiness`                      | *One Business* xlsx → sheet **Основные данные** (accountant, HVHH, status) |
+| `chats_sheet`                      | *Чаты* xlsx → sheet **Чаты** (agreement → Telegram chat link) |
+| `chats_without_bot`                | *Чаты* xlsx → sheet **Chats without bot** (account export: which chats have the bot) |
+| `refuseniks`                       | *OB Agreements & Invoices* xlsx → sheet **Отказники** (left/refused clients) |
+| `name_exceptions`                  | *One Business* xlsx → sheet **Exceptions** (name-pattern exclusions) |
+| `mqa` (live)                       | Supabase **`v_mqa_active`** (active monthly clients tracked by the bot) |
+| `chats_live` (live)                | Supabase **`chats`** counts (chats currently in the bot) |
+
+Companies are merged with **union-find over strong IDs** (HVHH and agreement
+number) — never by name, so two contracts with the same company name stay
+separate, and a single client scattered across sources collapses into one row.
+Logic lives in `lib/clientCount.js` (pure `computeClientCount` + `getClientCount`
+that loads the snapshots and reads Supabase); the page is `public/client-count.html`
+and the API is `GET /api/client-count`. Only real data is read — nothing is written.
+
+The page delivers the six asks of the task:
+
+1. **Итоги по источникам** — total record count in every source, split into
+   active vs inactive/exceptions, and the **active-count gap** (Agreements-active
+   vs live `v_mqa_active` vs linked-to-a-chat) called out explicitly.
+2. **Разбивка** — the merged universe split into active / inactive / refusenik /
+   exception / once / bad-debts / unknown.
+3. **Активные: где чат?** — active clients bucketed into `in_bot`,
+   `telegram_no_bot` (Telegram chat exists but no bot), `other_channel`
+   (WhatsApp / mail), `chat_unclear`, and `not_found` (не можем найти).
+4. **План действий** — per problematic active client: *where to look* and *what
+   to do*, filterable + CSV, plus a ready-to-copy **«Промежуточно — Гарри»**
+   message.
+5. **Чаты на аккаунте без бота** — from the account export (Emilia / sales
+   managers): every chat that exists on the account but has **no bot** — the list
+   to add the bot to.
+6. **Полное сравнение** — every company from every source with per-source
+   presence ticks, searchable/filterable, CSV export.
+
+### Refreshing the snapshots
+
+When the Excel/Google-Sheet sources change, regenerate the committed snapshots:
+
+```bash
+python3 scripts/extract-recon-sources.py \
+  --agreements "OB Agreements and Invoices 2025-2026.xlsx" \
+  --chats "Чаты.xlsx" \
+  --onebusiness "One Business.xlsx"
+```
+
+This rewrites `data/recon/*.jsonl` (and `meta.json`); commit the result. The live
+Supabase half (`v_mqa_active`, `chats`) is always read fresh at request time, so
+the count-control gap between the spreadsheets and the bot stays current.
+
 ## What counts as a "problem"
 
 A chat is problematic when it is missing **at least one** of these roles:

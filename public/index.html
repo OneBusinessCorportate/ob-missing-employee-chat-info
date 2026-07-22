@@ -183,7 +183,8 @@
           <p>Системный чек-лист: чаты без ответственных. Не отчёт о нарушениях.</p>
           <p class="meta" id="meta"></p>
         </header>
-        <div style="display:flex; gap:8px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <a class="btn" href="/client-count" style="text-decoration:none;" aria-label="Контроль количества клиентов">📊 Контроль клиентов</a>
           <button class="btn" id="refresh" type="button" aria-label="Обновить данные">↻ Обновить</button>
           <button class="btn" id="csv" type="button" aria-label="Экспорт в CSV">CSV</button>
           <button class="btn" id="logout" type="button" hidden>Выйти</button>

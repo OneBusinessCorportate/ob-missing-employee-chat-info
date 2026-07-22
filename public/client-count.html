@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Контроль количества клиентов · Сравнение источников</title>
+    <style>
+      :root {
+        --bg: #f5f6f8; --card: #ffffff; --text: #1a1d21; --muted: #6b7280;
+        --border: #e5e7eb; --accent: #2563eb; --accent-weak: rgba(37, 99, 235, 0.1);
+        --danger-bg: #fee2e2; --danger-text: #b91c1c; --ok: #059669; --ok-bg: #d1fae5;
+        --warn-bg: #fef3c7; --warn-text: #92400e; --skeleton: #e9ebef;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115; --card: #181b20; --text: #e7e9ec; --muted: #9aa0aa;
+          --border: #2a2e35; --accent: #60a5fa; --accent-weak: rgba(96, 165, 250, 0.16);
+          --danger-bg: #3a1d1d; --danger-text: #f87171; --ok: #34d399; --ok-bg: #14352a;
+          --warn-bg: #3a2f14; --warn-text: #fbbf24; --skeleton: #23272e;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--text); line-height: 1.45;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
+      .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+      header h1 { font-size: 1.3rem; margin: 4px 0 2px; }
+      header p { margin: 0 0 4px; color: var(--muted); font-size: 0.9rem; }
+      .meta { color: var(--muted); font-size: 0.75rem; margin: 0 0 12px; }
+      a.link { color: var(--accent); text-decoration: none; }
+      a.link:hover { text-decoration: underline; }
+      .btn {
+        border: 1px solid var(--border); background: var(--card); color: var(--text);
+        border-radius: 10px; padding: 8px 12px; font-size: 0.8rem; cursor: pointer; white-space: nowrap;
+      }
+      .btn:hover { border-color: var(--accent); }
+      h2 { font-size: 1.05rem; margin: 26px 0 4px; }
+      h2 .n { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
+      .hint { color: var(--muted); font-size: 0.8rem; margin: 0 0 12px; }
+
+      .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 8px 0 4px; }
+      .stat {
+        background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+        padding: 12px; text-align: center; cursor: pointer; font: inherit; color: inherit;
+      }
+      .stat:hover { border-color: var(--accent); }
+      .stat[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-weak); }
+      .stat .num { font-size: 1.4rem; font-weight: 700; }
+      .stat .lbl { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+      .stat.ok .num { color: var(--ok); }
+      .stat.warn .num { color: var(--warn-text); }
+      .stat.bad .num { color: var(--danger-text); }
+
+      .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+      table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+      th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+      th { position: sticky; top: 0; background: var(--card); font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
+      td.wrap-cell { white-space: normal; min-width: 220px; }
+      tr:last-child td { border-bottom: none; }
+      .num-cell { text-align: right; font-variant-numeric: tabular-nums; }
+      .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.72rem; border: 1px solid var(--border); }
+      .pill.active { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+      .pill.inactive, .pill.refusenik, .pill.exception, .pill.once, .pill.bad_debts, .pill.unknown { background: var(--danger-bg); color: var(--danger-text); border-color: transparent; }
+      .pill.in_bot { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+      .pill.telegram_no_bot, .pill.chat_unclear { background: var(--warn-bg); color: var(--warn-text); border-color: transparent; }
+      .pill.other_channel, .pill.not_found { background: var(--danger-bg); color: var(--danger-text); border-color: transparent; }
+      .src { font-size: 0.68rem; color: var(--muted); }
+      .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+      input[type="search"], select {
+        padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px;
+        background: var(--card); color: var(--text); font-size: 0.9rem;
+      }
+      input[type="search"] { flex: 1 1 220px; }
+      .harry { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+      .harry pre { margin: 8px 0 0; white-space: pre-wrap; font-size: 0.85rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .banner { background: var(--danger-bg); color: var(--danger-text); border-radius: 10px; padding: 8px 12px; font-size: 0.82rem; margin: 10px 0; }
+      .gap { background: var(--warn-bg); color: var(--warn-text); border-radius: 10px; padding: 10px 12px; font-size: 0.85rem; margin: 8px 0; }
+      .muted { color: var(--muted); }
+      @media (max-width: 760px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="topbar">
+        <header>
+          <h1>Контроль количества клиентов</h1>
+          <p>Сравнение ВСЕХ компаний из всех источников: Agreements (ИНН/HVHH + исключения), One Business, лист «Чаты», выгрузка аккаунта и живые данные Supabase (боте / v_mqa_active).</p>
+          <p class="meta" id="meta">Загрузка…</p>
+        </header>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <a class="link btn" href="/">← Проблемные чаты</a>
+          <button class="btn" id="refresh">Обновить</button>
+        </div>
+      </div>
+
+      <div id="liveErr"></div>
+
+      <!-- 1 + 2: итоги по источникам -->
+      <h2>1. Итоги по источникам <span class="n">— общее количество записей везде</span></h2>
+      <p class="hint">Сколько записей в каждом источнике и сколько из них активных / неактивных (исключения).</p>
+      <div class="tablewrap">
+        <table id="sourcesTable">
+          <thead><tr><th>Источник</th><th class="num-cell">Всего</th><th class="num-cell">Активные</th><th class="num-cell">Неактивные / искл.</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="gap" class="gap" hidden></div>
+
+      <!-- Разбивка универсума -->
+      <h2>2. Все компании: разбивка <span class="n" id="uniN"></span></h2>
+      <p class="hint">Объединённый список всех компаний из всех источников (склейка по HVHH и № договора). Нажмите на карточку — отфильтруется общая таблица внизу.</p>
+      <div class="stats" id="classStats"></div>
+
+      <!-- 3: активные vs не можем найти -->
+      <h2>3. Активные: где чат? <span class="n">— сравнение активных и тех, кого не можем найти</span></h2>
+      <p class="hint">Только эффективно активные клиенты. «Не можем найти» — нет чата ни в одном источнике или общение вне Telegram (WhatsApp / mail).</p>
+      <div class="stats" id="bucketStats"></div>
+
+      <!-- 4: план действий -->
+      <h2>4. План действий <span class="n" id="actionN"></span></h2>
+      <p class="hint">По каждому проблемному активному клиенту: где искать и что делать. Отфильтруйте по типу проблемы, выгрузите в CSV.</p>
+      <div class="controls">
+        <input type="search" id="actionSearch" placeholder="Поиск: имя, HVHH, договор, бухгалтер…" />
+        <select id="actionBucket">
+          <option value="">Все проблемы</option>
+          <option value="not_found">Не можем найти</option>
+          <option value="other_channel">WhatsApp / mail</option>
+          <option value="telegram_no_bot">Telegram есть, бота нет</option>
+          <option value="chat_unclear">Статус чата непонятен</option>
+        </select>
+        <button class="btn" id="actionCsv">Экспорт CSV</button>
+      </div>
+      <div class="tablewrap">
+        <table id="actionTable">
+          <thead><tr><th>Компания</th><th>HVHH</th><th>Договор</th><th>Бухгалтер</th><th>Тип</th><th>Где искать</th><th>Что делать</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <!-- Сообщение для Гарри -->
+      <h2>Промежуточно — Гарри</h2>
+      <div class="harry">
+        <button class="btn" id="copyHarry">Скопировать сообщение</button>
+        <pre id="harry"></pre>
+      </div>
+
+      <!-- 5: чаты у менеджеров без бота -->
+      <h2>5. Чаты на аккаунте без бота <span class="n" id="noBotN"></span></h2>
+      <p class="hint">Из выгрузки аккаунта Эмилии / менеджеров: чаты, которые есть на аккаунте, но в которых НЕТ бота — их нужно добавить в бота.</p>
+      <div class="controls">
+        <input type="search" id="noBotSearch" placeholder="Поиск по названию чата…" />
+        <button class="btn" id="noBotCsv">Экспорт CSV</button>
+      </div>
+      <div class="tablewrap">
+        <table id="noBotTable">
+          <thead><tr><th>Название чата</th><th>Chat ID</th><th>Ссылка</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <!-- 6: полная таблица сравнения -->
+      <h2>6. Полное сравнение <span class="n" id="allN"></span></h2>
+      <p class="hint">Все компании из всех источников. Галочки показывают, в каких источниках есть компания.</p>
+      <div class="controls">
+        <input type="search" id="allSearch" placeholder="Поиск: имя, HVHH, договор…" />
+        <select id="allClass">
+          <option value="">Все статусы</option>
+          <option value="active">Активные</option>
+          <option value="inactive">Неактивные</option>
+          <option value="refusenik">Отказники</option>
+          <option value="exception">Исключения</option>
+          <option value="once">Once</option>
+          <option value="bad_debts">Bad debts</option>
+          <option value="unknown">Непонятно</option>
+        </select>
+        <select id="allSource">
+          <option value="">Любой источник</option>
+          <option value="agreements">Agreements</option>
+          <option value="onebusiness">One Business</option>
+          <option value="chats_sheet">Чаты</option>
+          <option value="mqa">Supabase (mqa)</option>
+          <option value="refuseniks">Отказники</option>
+        </select>
+        <button class="btn" id="allCsv">Экспорт CSV</button>
+      </div>
+      <div class="tablewrap">
+        <table id="allTable">
+          <thead><tr>
+            <th>Компания</th><th>HVHH</th><th>Договор</th><th>Статус</th><th>Чат / канал</th><th>Бот</th>
+            <th title="Agreements">A</th><th title="One Business">OB</th><th title="Чаты">Ч</th><th title="Supabase mqa">S</th><th title="Отказники">О</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="meta" id="footer"></p>
+    </div>
+
+    <script>
+      const SRC_LABEL = { agreements: "A", onebusiness: "OB", chats_sheet: "Ч", mqa: "S", refuseniks: "О" };
+      const CLASS_LABEL = {
+        active: "Активные", inactive: "Неактивные", refusenik: "Отказники",
+        exception: "Исключения", once: "Once", bad_debts: "Bad debts", unknown: "Непонятно",
+      };
+      const BUCKET_LABEL = {
+        in_bot: "В боте (ОК)", telegram_no_bot: "Telegram есть, бота нет",
+        other_channel: "WhatsApp / mail", chat_unclear: "Статус непонятен", not_found: "Не можем найти",
+      };
+      const CHANNEL_LABEL = {
+        telegram: "Telegram", whatsapp: "WhatsApp", mail: "mail",
+        none: "нет", not_working: "не работаем", other_text: "прочее",
+      };
+      let DATA = null;
+
+      const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      const el = (id) => document.getElementById(id);
+
+      function csvEscape(v) {
+        const s = String(v == null ? "" : v);
+        return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }
+      function downloadCsv(name, rows) {
+        const csv = rows.map((r) => r.map(csvEscape).join(";")).join("\n");
+        const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+
+      async function load() {
+        el("meta").textContent = "Загрузка…";
+        try {
+          const res = await fetch("/api/client-count", { cache: "no-store" });
+          const json = await res.json();
+          if (!json.ok) throw new Error(json.error || "Ошибка API");
+          DATA = json.data;
+          render();
+        } catch (e) {
+          el("meta").textContent = "Ошибка загрузки: " + e.message;
+        }
+      }
+
+      function render() {
+        const d = DATA;
+        el("meta").textContent = "Обновлено: " + new Date(d.generated_at).toLocaleString("ru-RU");
+        el("liveErr").innerHTML = d.live_error
+          ? '<div class="banner">Живые данные Supabase недоступны (' + esc(d.live_error) + "). Показаны только данные из выгрузок xlsx.</div>"
+          : "";
+
+        // 1. Источники
+        el("sourcesTable").querySelector("tbody").innerHTML = d.source_totals
+          .map((t) => `<tr><td class="wrap-cell">${esc(t.label)}</td>
+            <td class="num-cell">${t.total == null ? "—" : t.total}</td>
+            <td class="num-cell">${t.active == null ? "—" : t.active}</td>
+            <td class="num-cell">${t.inactive == null ? "—" : t.inactive}</td></tr>`)
+          .join("");
+
+        // Разрыв в количестве активных
+        const agr = d.source_totals.find((t) => t.key === "agreements");
+        const mqa = d.source_totals.find((t) => t.key === "mqa_live");
+        const ch = d.source_totals.find((t) => t.key === "chats_sheet");
+        if (agr && (mqa || ch)) {
+          el("gap").hidden = false;
+          el("gap").innerHTML =
+            `Разрыв в количестве активных: Agreements — <b>${agr.active}</b>` +
+            (mqa && mqa.total ? `, живые в Supabase (v_mqa_active) — <b>${mqa.total}</b>` : "") +
+            (ch ? `, привязано к чату (лист «Чаты») — <b>${ch.active}</b>` : "") +
+            `. Именно этот разрыв разбирается ниже.`;
+        }
+
+        // 2. Разбивка универсума
+        el("uniN").textContent = "— всего " + d.universe.total + " компаний";
+        const cs = d.universe.by_class;
+        el("classStats").innerHTML = Object.keys(CLASS_LABEL)
+          .filter((k) => cs[k])
+          .map((k) => `<button class="stat ${k === "active" ? "ok" : "bad"}" data-class="${k}">
+            <div class="num">${cs[k]}</div><div class="lbl">${CLASS_LABEL[k]}</div></button>`)
+          .join("");
+        el("classStats").querySelectorAll("[data-class]").forEach((b) =>
+          b.addEventListener("click", () => {
+            el("allClass").value = b.dataset.class;
+            renderAll();
+            el("allTable").scrollIntoView({ behavior: "smooth", block: "start" });
+          }));
+
+        // 3. Ведёрки активных
+        const bk = d.buckets;
+        const bClass = { in_bot: "ok", telegram_no_bot: "warn", chat_unclear: "warn", other_channel: "bad", not_found: "bad" };
+        el("bucketStats").innerHTML = Object.keys(BUCKET_LABEL)
+          .map((k) => `<button class="stat ${bClass[k]}" data-bucket="${k}">
+            <div class="num">${bk[k] || 0}</div><div class="lbl">${BUCKET_LABEL[k]}</div></button>`)
+          .join("");
+        el("bucketStats").querySelectorAll("[data-bucket]").forEach((b) =>
+          b.addEventListener("click", () => {
+            el("actionBucket").value = b.dataset.bucket === "in_bot" ? "" : b.dataset.bucket;
+            renderActions();
+            el("actionTable").scrollIntoView({ behavior: "smooth", block: "start" });
+          }));
+
+        // 4 + Harry
+        el("harry").textContent = d.harry_message;
+        renderActions();
+
+        // 5
+        el("noBotN").textContent = "— " + d.manager_chats_no_bot.length + " чатов" +
+          (d.manager_chats_unclear ? " (+" + d.manager_chats_unclear + " со статусом «once/unknown»)" : "");
+        renderNoBot();
+
+        // 6
+        el("allN").textContent = "— " + d.all_companies.length + " компаний";
+        renderAll();
+
+        el("footer").textContent =
+          "Источники: снимки xlsx в data/recon + живые таблицы OB FAQ Supabase (v_mqa_active, chats). Ничего не записывается — только чтение.";
+      }
+
+      function renderActions() {
+        const q = el("actionSearch").value.trim().toLowerCase();
+        const bucket = el("actionBucket").value;
+        const rows = DATA.action_rows.filter((r) => {
+          if (bucket && r.bucket !== bucket) return false;
+          if (!q) return true;
+          return [r.name, r.hvhh, r.agr_no, r.accountant].some((v) => (v || "").toLowerCase().includes(q));
+        });
+        el("actionN").textContent = "— " + rows.length + " клиентов к разбору";
+        el("actionTable").querySelector("tbody").innerHTML =
+          rows.map((r) => `<tr>
+            <td class="wrap-cell">${esc(r.name || "—")}</td>
+            <td>${esc(r.hvhh || "—")}</td>
+            <td>${esc(r.agr_no || "—")}</td>
+            <td>${esc(r.accountant || "—")}</td>
+            <td><span class="pill ${r.bucket}">${esc(BUCKET_LABEL[r.bucket] || r.bucket)}</span></td>
+            <td class="wrap-cell">${esc(r.action.where)}</td>
+            <td class="wrap-cell">${esc(r.action.what)}</td></tr>`).join("") ||
+          '<tr><td colspan="7" class="muted">Ничего не найдено.</td></tr>';
+      }
+
+      function renderNoBot() {
+        const q = el("noBotSearch").value.trim().toLowerCase();
+        const rows = DATA.manager_chats_no_bot.filter((r) => !q || (r.chat_name || "").toLowerCase().includes(q));
+        el("noBotTable").querySelector("tbody").innerHTML =
+          rows.map((r) => `<tr>
+            <td class="wrap-cell">${esc(r.chat_name || "—")}</td>
+            <td>${esc(r.chat_id || "—")}</td>
+            <td class="wrap-cell">${r.chat_link ? esc(r.chat_link) : "—"}</td></tr>`).join("") ||
+          '<tr><td colspan="3" class="muted">Ничего не найдено.</td></tr>';
+      }
+
+      function renderAll() {
+        const q = el("allSearch").value.trim().toLowerCase();
+        const cls = el("allClass").value;
+        const src = el("allSource").value;
+        const rows = DATA.all_companies.filter((r) => {
+          if (cls && r.status_class !== cls) return false;
+          if (src && !(r.sources || []).includes(src)) return false;
+          if (!q) return true;
+          return [r.name, r.hvhh, r.agr_no].some((v) => (v || "").toLowerCase().includes(q));
+        });
+        el("allN").textContent = "— показано " + rows.length + " из " + DATA.all_companies.length;
+        const tick = (r, s) => ((r.sources || []).includes(s) ? "✓" : "");
+        el("allTable").querySelector("tbody").innerHTML =
+          rows.slice(0, 1500).map((r) => `<tr>
+            <td class="wrap-cell">${esc(r.name || "—")}</td>
+            <td>${esc(r.hvhh || "—")}</td>
+            <td>${esc(r.agr_no || "—")}</td>
+            <td><span class="pill ${r.status_class}">${esc(CLASS_LABEL[r.status_class] || r.status_class)}</span></td>
+            <td>${esc(CHANNEL_LABEL[r.chat_channel] || r.chat_channel)}</td>
+            <td>${esc(r.bot_status)}</td>
+            <td>${tick(r, "agreements")}</td><td>${tick(r, "onebusiness")}</td>
+            <td>${tick(r, "chats_sheet")}</td><td>${tick(r, "mqa")}</td><td>${tick(r, "refuseniks")}</td></tr>`).join("") ||
+          '<tr><td colspan="11" class="muted">Ничего не найдено.</td></tr>';
+        if (rows.length > 1500) el("footer").textContent = "Показаны первые 1500 строк — уточните фильтр или выгрузите CSV для полного списка.";
+      }
+
+      // фильтры
+      el("actionSearch").addEventListener("input", renderActions);
+      el("actionBucket").addEventListener("change", renderActions);
+      el("noBotSearch").addEventListener("input", renderNoBot);
+      el("allSearch").addEventListener("input", renderAll);
+      el("allClass").addEventListener("change", renderAll);
+      el("allSource").addEventListener("change", renderAll);
+      el("refresh").addEventListener("click", load);
+
+      el("copyHarry").addEventListener("click", () => {
+        navigator.clipboard.writeText(DATA.harry_message).then(() => {
+          el("copyHarry").textContent = "Скопировано ✓";
+          setTimeout(() => (el("copyHarry").textContent = "Скопировать сообщение"), 1500);
+        });
+      });
+      el("actionCsv").addEventListener("click", () => {
+        const head = ["Компания", "HVHH", "Договор", "Бухгалтер", "Тип", "Где искать", "Что делать"];
+        const body = DATA.action_rows.map((r) => [r.name, r.hvhh, r.agr_no, r.accountant, BUCKET_LABEL[r.bucket] || r.bucket, r.action.where, r.action.what]);
+        downloadCsv("client-action-plan.csv", [head, ...body]);
+      });
+      el("noBotCsv").addEventListener("click", () => {
+        const head = ["Название чата", "Chat ID", "Ссылка"];
+        const body = DATA.manager_chats_no_bot.map((r) => [r.chat_name, r.chat_id, r.chat_link]);
+        downloadCsv("chats-without-bot.csv", [head, ...body]);
+      });
+      el("allCsv").addEventListener("click", () => {
+        const head = ["Компания", "HVHH", "Договор", "Статус", "Канал", "Бот", "Источники"];
+        const body = DATA.all_companies.map((r) => [r.name, r.hvhh, r.agr_no, CLASS_LABEL[r.status_class] || r.status_class, CHANNEL_LABEL[r.chat_channel] || r.chat_channel, r.bot_status, (r.sources || []).map((s) => SRC_LABEL[s] || s).join("+")]);
+        downloadCsv("all-companies-comparison.csv", [head, ...body]);
+      });
+
+      load();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "extracted_on": "2026-07-22",
+  "note": "Snapshots extracted from the three OB Excel sources. Regenerate with scripts/extract-recon-sources.py.",
+  "sources": {
+    "agreements": "OB Agreements and Invoices 2025-2026.xlsx / sheet 'Agreements' (master client list = HVHH, incl. inactive/exceptions)",
+    "refuseniks": "OB Agreements and Invoices.xlsx / sheet 'Отказники' (left/refused clients)",
+    "chats_sheet": "Чаты.xlsx / sheet 'Чаты' (agreement -> Telegram chat linkage)",
+    "chats_without_bot": "Чаты.xlsx / sheet 'Chats without bot' (account export: which chats have the bot)",
+    "onebusiness": "One Business.xlsx / sheet 'Основные данные' (client master with accountant, HVHH, status)",
+    "name_exceptions": "One Business.xlsx / sheet 'Exceptions' (name-pattern exclusions)"
+  },
+  "row_counts": {
+    "chats_sheet": 1025,
+    "name_exceptions": 2,
+    "refuseniks": 86,
+    "chats_without_bot": 1012,
+    "onebusiness": 1288,
+    "agreements": 1912
+  }
+}
