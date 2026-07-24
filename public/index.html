@@ -180,7 +180,10 @@
       <div class="topbar">
         <header>
           <h1>Проблемные чаты</h1>
-          <p>Системный чек-лист: чаты без ответственных. Не отчёт о нарушениях.</p>
+          <p data-info="page_problems">Системный чек-лист: чаты без ответственных. Не отчёт о нарушениях.</p>
+          <p class="meta">Подсказки к цифрам: наведите на значок&nbsp;
+            <span data-info="presence_rule"></span> как считается «ответственный есть» ·
+            <span data-info="exclusions_problems"></span> что исключается</p>
           <p class="meta" id="meta"></p>
         </header>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -193,27 +196,27 @@
 
       <section class="stats" id="stats" aria-label="Сводка">
         <button class="stat" data-filter="total" type="button" aria-disabled="true">
-          <div class="num" id="s-total">–</div><div class="lbl">С неполной инф.</div>
+          <div class="num" id="s-total">–</div><div class="lbl" data-info="stat_total">С неполной инф.</div>
         </button>
         <button class="stat" data-filter="accountant" type="button" aria-pressed="false">
-          <div class="num" id="s-acc">–</div><div class="lbl">Без бухгалтера</div>
+          <div class="num" id="s-acc">–</div><div class="lbl" data-info="stat_missing_accountant">Без бухгалтера</div>
         </button>
         <button class="stat" data-filter="head_accountant" type="button" aria-pressed="false">
-          <div class="num" id="s-head">–</div><div class="lbl">Без гл. бухгалтера</div>
+          <div class="num" id="s-head">–</div><div class="lbl" data-info="stat_missing_head">Без гл. бухгалтера</div>
         </button>
         <button class="stat" data-filter="manager" type="button" aria-pressed="false">
-          <div class="num" id="s-mgr">–</div><div class="lbl">Без менеджера</div>
+          <div class="num" id="s-mgr">–</div><div class="lbl" data-info="stat_missing_manager">Без менеджера</div>
         </button>
       </section>
 
       <section class="agr" id="agr-section" aria-label="Agreements — активные месячные клиенты" hidden>
-        <p class="agr-title">Agreements — активные месячные клиенты</p>
+        <p class="agr-title" data-info="agr_section">Agreements — активные месячные клиенты</p>
         <div class="stats">
           <button class="stat" data-view="no_hvhh" type="button" aria-pressed="false">
-            <div class="num" id="s-hvhh">–</div><div class="lbl">Нет HVHH в Agreements</div>
+            <div class="num" id="s-hvhh">–</div><div class="lbl" data-info="stat_no_hvhh">Нет HVHH в Agreements</div>
           </button>
           <button class="stat" data-view="no_chat" type="button" aria-pressed="false">
-            <div class="num" id="s-nochat">–</div><div class="lbl">Нет чатов у активных клиентов</div>
+            <div class="num" id="s-nochat">–</div><div class="lbl" data-info="stat_no_chat">Нет чатов у активных клиентов</div>
           </button>
         </div>
         <p class="agr-note" id="agr-note" hidden></p>
@@ -233,6 +236,7 @@
           <option value="updated">Сначала недавно проверенные</option>
         </select>
         <button class="chip" id="chip-notchecked" type="button" aria-pressed="false" hidden>Не проверено</button>
+        <span data-info="notchecked"></span>
       </section>
 
       <section id="list" class="list" aria-live="polite" aria-busy="true"></section>
@@ -242,6 +246,7 @@
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
 
+    <script src="/metric-info.js"></script>
     <script>
       // view: "problems" (по умолчанию) | "notchecked" | "no_hvhh" | "no_chat".
       // Два последних — метрики Agreements (те же, что в Telegram-сводке).
@@ -406,6 +411,8 @@
         const name = document.createElement("div");
         name.className = "name";
         name.textContent = c.chat_name;
+        // Значок-пояснение: что это за строка (проблемный / непроверенный чат).
+        if (window.MetricInfo) name.appendChild(MetricInfo.badge(c.no_data ? "row_notchecked" : "row_problem"));
         left.appendChild(name);
 
         const subText = subtitle(c);
@@ -472,6 +479,7 @@
         const name = document.createElement("div");
         name.className = "name";
         name.textContent = c.client || "(без названия)";
+        if (window.MetricInfo) name.appendChild(MetricInfo.badge("row_client"));
         left.appendChild(name);
 
         // Подпись: № договора и/или HVHH — то, что помогает найти клиента.

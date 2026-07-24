@@ -91,7 +91,7 @@
       <div class="topbar">
         <header>
           <h1>Контроль количества клиентов</h1>
-          <p>Сверяем наши списки клиентов из разных мест и показываем, у кого нет чата в Telegram или нет нашего бота — чтобы ни один клиент не потерялся.</p>
+          <p data-info="page_clientcount">Сверяем наши списки клиентов из разных мест и показываем, у кого нет чата в Telegram или нет нашего бота — чтобы ни один клиент не потерялся.</p>
           <p class="meta" id="meta">Загрузка…</p>
         </header>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -109,33 +109,37 @@
         <p class="muted" style="margin-bottom:0;">Читайте страницу сверху вниз: сначала общие цифры,
         затем — конкретные клиенты, с которыми нужно что-то сделать. Ничего не изменяется —
         страница только показывает данные.</p>
+        <p class="muted" style="margin-bottom:0;">Подсказки к цифрам — наведите на значок:
+          <span data-info="merge_rule"></span> как клиенты объединяются в один список ·
+          <span data-info="negatives_clientcount"></span> что такое «негативные» и как они исключаются ·
+          <span data-info="data_source_format"></span> xlsx — это Google Таблицы?</p>
       </div>
 
       <div id="liveErr"></div>
 
       <!-- 1 + 2: итоги по источникам -->
-      <h2>1. Сколько клиентов в каждом списке <span class="n">— общие цифры</span></h2>
-      <p class="hint">В каждом из наших списков — сколько всего клиентов, сколько из них сейчас работают с нами (активные) и сколько уже нет (неактивные).</p>
+      <h2 data-info="section_sources">1. Сколько клиентов в каждом списке <span class="n">— общие цифры</span></h2>
+      <p class="hint">В каждом из наших списков — сколько всего клиентов, сколько из них сейчас работают с нами (активные) и сколько уже нет (неактивные). <span data-info="gap"></span></p>
       <div class="tablewrap">
         <table id="sourcesTable">
-          <thead><tr><th>Список (источник)</th><th class="num-cell">Всего</th><th class="num-cell">Активные</th><th class="num-cell">Неактивные</th></tr></thead>
+          <thead><tr><th>Список (источник)</th><th class="num-cell" data-info="col_src_total">Всего</th><th class="num-cell" data-info="col_src_active">Активные</th><th class="num-cell" data-info="col_src_inactive">Неактивные</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div id="gap" class="gap" hidden></div>
 
       <!-- Разбивка универсума -->
-      <h2>2. Все клиенты по статусу <span class="n" id="uniN"></span></h2>
+      <h2 data-info="section_universe">2. Все клиенты по статусу <span class="n" id="uniN"></span></h2>
       <p class="hint">Все клиенты из всех списков, объединённые в один общий список (одинаковые клиенты не считаются дважды). Нажмите на любую карточку — внизу откроется список этих клиентов.</p>
       <div class="stats" id="classStats"></div>
 
       <!-- 3: активные vs не можем найти -->
-      <h2>3. У всех ли активных клиентов есть чат? <span class="n">— и где именно</span></h2>
+      <h2 data-info="section_buckets">3. У всех ли активных клиентов есть чат? <span class="n">— и где именно</span></h2>
       <p class="hint">Только те клиенты, кто сейчас работает с нами. Показываем, у кого всё в порядке, а у кого чат не найден или общение идёт не в Telegram (WhatsApp / почта). Нажмите на карточку, чтобы увидеть список.</p>
       <div class="stats" id="bucketStats"></div>
 
       <!-- 4: план действий -->
-      <h2>4. Что нужно сделать <span class="n" id="actionN"></span></h2>
+      <h2 data-info="section_actions">4. Что нужно сделать <span class="n" id="actionN"></span></h2>
       <p class="hint">Список активных клиентов, с которыми есть проблема. Для каждого написано, где его искать и что сделать. Можно отфильтровать по типу проблемы и скачать таблицу (кнопка «Экспорт CSV» — сохранит файл для Excel).</p>
       <div class="controls">
         <input type="search" id="actionSearch" placeholder="Поиск: имя, HVHH, договор, бухгалтер…" />
@@ -150,13 +154,13 @@
       </div>
       <div class="tablewrap">
         <table id="actionTable">
-          <thead><tr><th>Клиент</th><th>HVHH (налог. номер)</th><th>№ договора</th><th>Бухгалтер</th><th>Проблема</th><th>Где искать</th><th>Что делать</th></tr></thead>
+          <thead><tr><th>Клиент</th><th data-info="col_hvhh">HVHH (налог. номер)</th><th data-info="col_agr">№ договора</th><th>Бухгалтер</th><th data-info="col_problem">Проблема</th><th data-info="col_action_where">Где искать</th><th data-info="col_action_what">Что делать</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
 
       <!-- Сообщение для Гарри -->
-      <h2>Готовое сообщение <span class="n">— для Гарри, можно скопировать</span></h2>
+      <h2 data-info="section_harry">Готовое сообщение <span class="n">— для Гарри, можно скопировать</span></h2>
       <p class="hint">Короткая сводка по проблемам одним сообщением. Нажмите кнопку — текст скопируется, и его можно вставить в чат.</p>
       <div class="harry">
         <button class="btn" id="copyHarry">Скопировать сообщение</button>
@@ -164,7 +168,7 @@
       </div>
 
       <!-- 5: чаты у менеджеров без бота -->
-      <h2>5. Чаты, в которые нужно добавить бота <span class="n" id="noBotN"></span></h2>
+      <h2 data-info="section_nobot">5. Чаты, в которые нужно добавить бота <span class="n" id="noBotN"></span></h2>
       <p class="hint">Эти чаты есть у менеджеров, но нашего бота в них нет. Бота нужно добавить, иначе мы не видим, что происходит в чате.</p>
       <div class="controls">
         <input type="search" id="noBotSearch" placeholder="Поиск по названию чата…" />
@@ -178,7 +182,7 @@
       </div>
 
       <!-- 6: полная таблица сравнения -->
-      <h2>6. Полный список всех клиентов <span class="n" id="allN"></span></h2>
+      <h2 data-info="section_all">6. Полный список всех клиентов <span class="n" id="allN"></span></h2>
       <p class="hint">Все клиенты из всех списков в одной таблице. Галочка ✓ в последних столбцах показывает, в каком именно списке есть этот клиент.</p>
       <p class="hint legend">Что означают столбцы со списками:
         <b>Дог.</b> — договоры · <b>OB</b> — таблица One Business · <b>Чаты</b> — лист «Чаты» ·
@@ -208,8 +212,8 @@
       <div class="tablewrap">
         <table id="allTable">
           <thead><tr>
-            <th>Клиент</th><th>HVHH (налог. номер)</th><th>№ договора</th><th>Статус</th><th>Чат / канал</th><th>Бот</th>
-            <th title="Договоры">Дог.</th><th title="One Business">OB</th><th title="Лист «Чаты»">Чаты</th><th title="Наша система">Система</th><th title="Отказники">Отказ</th>
+            <th>Клиент</th><th data-info="col_hvhh">HVHH (налог. номер)</th><th data-info="col_agr">№ договора</th><th data-info="col_status">Статус</th><th data-info="col_channel">Чат / канал</th><th data-info="col_bot">Бот</th>
+            <th title="Договоры" data-info="col_src_ticks">Дог.</th><th title="One Business">OB</th><th title="Лист «Чаты»">Чаты</th><th title="Наша система">Система</th><th title="Отказники">Отказ</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -217,6 +221,7 @@
       <p class="meta" id="footer"></p>
     </div>
 
+    <script src="/metric-info.js"></script>
     <script>
       const SRC_LABEL = { agreements: "Договоры", onebusiness: "One Business", chats_sheet: "Чаты", mqa: "Система", refuseniks: "Отказ" };
       const CLASS_LABEL = {
@@ -297,8 +302,9 @@
         el("classStats").innerHTML = Object.keys(CLASS_LABEL)
           .filter((k) => cs[k])
           .map((k) => `<button class="stat ${k === "active" ? "ok" : "bad"}" data-class="${k}">
-            <div class="num">${cs[k]}</div><div class="lbl">${CLASS_LABEL[k]}</div></button>`)
+            <div class="num">${cs[k]}</div><div class="lbl">${CLASS_LABEL[k]}<span data-info="class_${k}"></span></div></button>`)
           .join("");
+        if (window.MetricInfo) MetricInfo.attach(el("classStats"));
         el("classStats").querySelectorAll("[data-class]").forEach((b) =>
           b.addEventListener("click", () => {
             el("allClass").value = b.dataset.class;
@@ -311,8 +317,9 @@
         const bClass = { in_bot: "ok", telegram_no_bot: "warn", chat_unclear: "warn", other_channel: "bad", not_found: "bad" };
         el("bucketStats").innerHTML = Object.keys(BUCKET_LABEL)
           .map((k) => `<button class="stat ${bClass[k]}" data-bucket="${k}">
-            <div class="num">${bk[k] || 0}</div><div class="lbl">${BUCKET_LABEL[k]}</div></button>`)
+            <div class="num">${bk[k] || 0}</div><div class="lbl">${BUCKET_LABEL[k]}<span data-info="bucket_${k}"></span></div></button>`)
           .join("");
+        if (window.MetricInfo) MetricInfo.attach(el("bucketStats"));
         el("bucketStats").querySelectorAll("[data-bucket]").forEach((b) =>
           b.addEventListener("click", () => {
             el("actionBucket").value = b.dataset.bucket === "in_bot" ? "" : b.dataset.bucket;
