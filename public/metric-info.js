@@ -391,39 +391,61 @@
   }
 
   // ---- Создание значка ⓘ. --------------------------------------------------
-  // Значок — <span role="button">, а не <button>, чтобы его можно было вкладывать
-  // внутрь плиток-кнопок дашборда (вложенный <button> невалиден).
-  function makeBadge(key) {
-    if (!INFO[key]) {
+  // opts.interactive:
+  //   true  (по умолчанию) — полноценный контрол: фокусируется с клавиатуры
+  //          (role=button, tabindex). Годится в заголовках, ячейках <th>, тексте.
+  //   false — НЕинтерактивный значок. Нужен, когда значок вкладывается ВНУТРЬ
+  //          интерактивного предка (кнопки-плитки/ссылки): по стандарту HTML у
+  //          <button> не может быть фокусируемых потомков и потомков с tabindex.
+  //          Смысл плитки уже несёт её подпись; подробность доступна по наведению,
+  //          тапу и через нативный title (значок скрыт от скринридеров).
+  function makeBadge(key, opts) {
+    opts = opts || {};
+    const interactive = opts.interactive !== false;
+    const info = INFO[key];
+    if (!info) {
       // Явно сигналим о забытом ключе — помогает не рассинхронить формулу и текст.
       console.warn("[metric-info] нет пояснения для ключа:", key);
     }
     const b = document.createElement("span");
     b.className = "mi-badge";
     b.setAttribute("data-mi-key", key);
-    b.setAttribute("role", "button");
-    b.setAttribute("tabindex", "0");
-    b.setAttribute("aria-label", "Пояснение: " + ((INFO[key] && INFO[key].title) || key));
     b.textContent = "i";
+    // Нативная подсказка-фолбэк: работает у всех при наведении, даже если JS-тултип
+    // недоступен, и озвучивается вспомогательными технологиями на интерактивном значке.
+    b.setAttribute(
+      "title",
+      info ? (info.title ? info.title + " — " : "") + info.body : key,
+    );
 
+    if (interactive) {
+      b.setAttribute("role", "button");
+      b.setAttribute("tabindex", "0");
+      b.setAttribute("aria-label", "Пояснение: " + ((info && info.title) || key));
+      b.addEventListener("focus", () => showFor(b));
+      b.addEventListener("blur", hideNow);
+      b.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          showFor(b);
+        } else if (e.key === "Escape") {
+          hideNow();
+        }
+      });
+    } else {
+      // Валидно внутри <button>/<a>: без role и tabindex, скрыт от скринридеров.
+      b.setAttribute("aria-hidden", "true");
+    }
+
+    // Наведение и тап работают в обоих режимах.
     b.addEventListener("mouseenter", () => showFor(b));
     b.addEventListener("mouseleave", scheduleHide);
-    b.addEventListener("focus", () => showFor(b));
-    b.addEventListener("blur", hideNow);
     b.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation(); // не запускать фильтр плитки под значком
       if (activeBadge === b && pop && pop.classList.contains("mi-show")) hideNow();
       else showFor(b);
-    });
-    b.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        e.stopPropagation();
-        showFor(b);
-      } else if (e.key === "Escape") {
-        hideNow();
-      }
     });
     return b;
   }
@@ -438,7 +460,9 @@
     nodes.forEach((node) => {
       node.setAttribute("data-mi-done", "1");
       const key = node.getAttribute("data-info");
-      node.appendChild(makeBadge(key));
+      // Внутри кнопки/ссылки значок обязан быть неинтерактивным (валидность HTML).
+      const interactive = !node.closest('button, a, [role="button"]');
+      node.appendChild(makeBadge(key, { interactive: interactive }));
     });
   }
 
