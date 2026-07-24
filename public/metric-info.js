@@ -441,11 +441,14 @@
     // Наведение и тап работают в обоих режимах.
     b.addEventListener("mouseenter", () => showFor(b));
     b.addEventListener("mouseleave", scheduleHide);
+    // Клик/тап всегда ОТКРЫВАЕТ подсказку (без переключения). Иначе у
+    // интерактивного значка возникает гонка: focus по клику уже показал тултип,
+    // а следующий click закрыл бы его — и на тапе он моргал бы. Закрытие —
+    // кликом вне значка, Escape, уводом курсора или потерей фокуса.
     b.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation(); // не запускать фильтр плитки под значком
-      if (activeBadge === b && pop && pop.classList.contains("mi-show")) hideNow();
-      else showFor(b);
+      showFor(b);
     });
     return b;
   }
