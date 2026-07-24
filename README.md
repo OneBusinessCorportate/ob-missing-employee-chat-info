@@ -179,6 +179,33 @@ This rewrites `data/recon/*.jsonl` (and `meta.json`); commit the result. The liv
 Supabase half (`v_mqa_active`, `chats`) is always read fresh at request time, so
 the count-control gap between the spreadsheets and the bot stays current.
 
+### xlsx — это Google Таблицы? / Is xlsx a Google Sheet?
+
+Нет. Приложение читает именно файлы **Excel (`.xlsx`)** — `openpyxl` в
+`scripts/extract-recon-sources.py`. Прямого подключения к Google Sheets в коде
+нет. Порядок такой:
+
+1. Таблицу ведут в Google Таблицах (или Excel).
+2. Её выгружают как `.xlsx` (в Google Sheets: *Файл → Скачать → Microsoft Excel*).
+3. Запускают `extract-recon-sources.py`, который читает `.xlsx` и сохраняет
+   снимки в `data/recon/*.jsonl`; снимки коммитятся в репозиторий.
+4. Живые данные (активные клиенты, счётчики чатов) берутся отдельно из Supabase
+   в реальном времени.
+
+Ничего обратно в `.xlsx`/Google не записывается — источники только читаются.
+
+### Подсказки к цифрам на дашбордах (tooltips)
+
+У каждой цифры, столбца, блока и строки на дашбордах есть значок **ⓘ** с
+пояснением: что за таблица, как считается число, какая формула, что такое
+«негативные» и как они исключаются. Все тексты — в одном файле
+`public/metric-info.js` (единый источник правды).
+
+**Правило (обязательно):** при изменении логики расчёта (`lib/problemChats.js`,
+`lib/clientChecks.js`, `lib/clientCount.js` или вью Supabase) в том же PR нужно
+обновить `public/metric-info.js`. Это проверяет робот `doc-sync` (проверка
+`tooltips`); форточка — метка PR `skip-tooltips`. Подробнее — в `AGENTS.md`.
+
 ## What counts as a "problem"
 
 A chat is problematic when it is missing **at least one** of these roles:
