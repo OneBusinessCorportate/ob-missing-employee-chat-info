@@ -201,10 +201,11 @@ the count-control gap between the spreadsheets and the bot stays current.
 «негативные» и как они исключаются. Все тексты — в одном файле
 `public/metric-info.js` (единый источник правды).
 
-**Правило (обязательно):** при изменении логики расчёта (`lib/problemChats.js`,
-`lib/clientChecks.js`, `lib/clientCount.js` или вью Supabase) в том же PR нужно
-обновить `public/metric-info.js`. Это проверяет робот `doc-sync` (проверка
-`tooltips`); форточка — метка PR `skip-tooltips`. Подробнее — в `AGENTS.md`.
+**Правило (обязательно):** при изменении логики расчёта — `lib/problemChats.js`,
+`lib/clientChecks.js`, `lib/clientCount.js` или определений вью Supabase в
+`sql/*.sql` — в том же PR нужно обновить `public/metric-info.js`. Это проверяет
+робот `doc-sync` (проверка `tooltips`), сверяя именно пути `lib/*.js` и
+`sql/*.sql`; форточка — метка PR `skip-tooltips`. Подробнее — в `AGENTS.md`.
 
 ## What counts as a "problem"
 

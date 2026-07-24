@@ -64,7 +64,10 @@ jobs:
             exit 0
           fi
           FILES=$(git diff --name-only "$BASE...$HEAD")
-          LOGIC=$(echo "$FILES" | grep -E '^lib/(problemChats|clientChecks|clientCount)\.js$' || true)
+          # Расчётная логика цифр: сведение в lib/*.js И определения вью Supabase
+          # (sql/*.sql) — обе части задают смысл чисел на дашбордах, поэтому обе
+          # обязаны сопровождаться обновлением подсказок (как заявлено в AGENTS.md).
+          LOGIC=$(echo "$FILES" | grep -E '^lib/(problemChats|clientChecks|clientCount)\.js$|^sql/.*\.sql$' || true)
           if [ -z "$LOGIC" ]; then
             echo "Логика расчёта не менялась — обновление подсказок не требуется."
             exit 0
@@ -74,5 +77,5 @@ jobs:
             echo "✓ Логика расчёта изменена и подсказки (public/metric-info.js) обновлены."
             exit 0
           fi
-          echo "::error::Изменена логика расчёта (lib/*.js), но public/metric-info.js не обновлён. Обнови пояснения к цифрам/формулам или поставь метку 'skip-tooltips'."
+          echo "::error::Изменена логика расчёта (lib/*.js или вью в sql/*.sql), но public/metric-info.js не обновлён. Обнови пояснения к цифрам/формулам или поставь метку 'skip-tooltips'."
           exit 1
